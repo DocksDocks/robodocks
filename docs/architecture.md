@@ -72,9 +72,11 @@ finding/delivery writes. Delivery insertion, finding insertion, and outbox
 reservation commit together or all roll back. Read snapshots use a single read
 transaction and exclude repositories outside the active operator policy.
 
-Repository predicates are bound in SQL before payloads are read, with supporting
-repository indexes; primary keys and the outbox finding-ID unique index cover
-identity lookups. No candidate string is interpolated into SQL. Native busy
+Snapshot repository predicates are bound in SQL before payloads are read, with
+supporting repository indexes. Lifecycle operations first authorize a
+metadata-only lookup, then decode the ID-bound joined observation in the same
+transaction. Primary keys and the outbox finding-ID unique index cover identity
+lookups. No candidate string is interpolated into SQL. Native busy
 errors become a sanitized STORAGE_BUSY result; there are no automatic retries.
 
 ## Identity and state
