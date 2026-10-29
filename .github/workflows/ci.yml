@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   test:
-    name: Node 24 checks and synthetic demo
+    name: Node 26 LTS checks and synthetic demo
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -1,7 +1,9 @@
 # CI boundaries
 
 The [workflow](../.github/workflows/ci.yml) runs on pull requests and pushes to
-`main`, using a GitHub-hosted Ubuntu runner and Node.js 24.x. It runs
+`main`, using a GitHub-hosted Ubuntu runner and Node.js **26.13.0 LTS**, read from
+the exact `.nvmrc` pin. The supported engine range starts at that LTS release,
+not at the earlier non-LTS 26.12.x releases. It runs
 `npm run check` and the synthetic JSON demo. No dependency installation is needed.
 
 The token has `contents: read` only, checkout does not persist credentials, package
@@ -20,6 +22,13 @@ The workflow uses `pull_request`, not privileged `pull_request_target`. CI execu
 candidate code on its runner; that is separate from the Robodocks planner, which
 never executes the source text in review fixtures. Do not add secrets or write
 credentials to these tests. Review future action upgrades and workflow changes.
+The project runtime pin is separate from an action's own internal JavaScript
+runtime; the test commands run under the Node version installed by `setup-node`.
+
+For updates, follow the README's LTS-first, stable-otherwise policy. Keep the
+`.nvmrc` pin and minimum `package.json` engine version aligned, then verify the
+full suite and demo on that actual runtime before treating the update as validated
+or merging it.
 
 Local execution of the same commands verifies the code, not GitHub runner startup,
 repository Actions settings, or remote job success. Inspect the exact commit's

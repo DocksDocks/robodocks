@@ -25,8 +25,9 @@ finding, calibration of its confidence, or completeness of a review.
 
 ## Run locally
 
-Use Node.js **24.12 or newer within the 24.x line**. There are no dependencies to
-install and no build step.
+Use Node.js **26.13.0 LTS (Lithium)**, pinned in `.nvmrc` and used by CI. The
+supported runtime range is `>=26.13.0 <27`; earlier Node 26 releases predate its
+LTS transition. There are no dependencies to install and no build step.
 
 ```sh
 npm run check
@@ -34,6 +35,10 @@ npm run demo
 # Or emit only JSON, without npm's command banner:
 node src/cli.ts --policy examples/policy.json --input examples/review.json
 ```
+
+If you use nvm, run `nvm install` and `nvm use` in the repository first. The test
+suite checks that the running Node version is an LTS release meeting the reviewed
+`.nvmrc` baseline within the same major.
 
 The sample has a fictional repository and a hand-authored empty-input finding.
 The CLI returns a plan and ledger snapshot on stdout; validation errors are JSON
@@ -77,9 +82,25 @@ Untrusted proposed findings ──┘                                    (JSON o
 
 TypeScript's erasable syntax runs directly in Node. `npm run check` performs
 syntax checks and runtime tests; it **does not perform static type checking**.
-Node's built-in [TypeScript support](https://nodejs.org/docs/latest-v24.x/api/typescript.html)
+Node's built-in [TypeScript support](https://nodejs.org/docs/latest-v26.x/api/typescript.html)
 strips types without checking them. A pinned TypeScript compiler and Node type
 definitions can be added with the first tooling iteration.
+
+## Version selection policy
+
+Prefer the latest supported LTS release when a runtime or dependency offers an
+official LTS channel. Otherwise, use the latest stable release compatible with
+this project; do not select prereleases by default. Verify upstream status and
+compatibility before an upgrade, pin the reviewed version, and rerun checks and
+the demo. A newer version is not automatically compatible or automatically
+authorized for deployment.
+
+Node 26.13.0 became the latest LTS on 2026-10-28, according to the
+[official release announcement](https://nodejs.org/en/blog/release/v26.13.0) and
+[release index](https://nodejs.org/dist/index.json). Node 24 is still an LTS line;
+this project chooses the newer LTS baseline. GitHub Actions are pinned to reviewed
+stable releases because they do not expose an LTS channel. There are currently
+no npm dependencies to upgrade.
 
 ## Roadmap, not implemented
 

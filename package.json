@@ -4,7 +4,7 @@
   "private": true,
   "description": "A repository-agnostic, dry-run foundation for a reviewer-first automation tool.",
   "type": "module",
-  "engines": { "node": ">=24.12.0 <25" },
+  "engines": { "node": ">=26.13.0 <27" },
   "scripts": {
     "test": "node --test test/*.test.ts",
     "check": "node --check src/contracts.ts && node --check src/validation.ts && node --check src/reviewer.ts && node --check src/cli.ts && npm test",
