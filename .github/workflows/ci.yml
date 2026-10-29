@@ -31,7 +31,7 @@ jobs:
           bun-version-file: .bun-version
       - name: Install locked dependencies without lifecycle scripts
         run: bun install --frozen-lockfile --ignore-scripts
-      - name: Strict types, lint, formatting, and tests
+      - name: Strict types, lint, formatting, and Bun-hosted Vitest
         run: bun run check
       - name: Run synthetic dry-run demo
         run: bun run demo

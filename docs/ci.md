@@ -8,7 +8,12 @@ main, on a GitHub-hosted Ubuntu runner. It reads the exact Bun version from
 
 No dependency lifecycle scripts run. The job then runs bun run check and the
 synthetic durable demo. The aggregate command performs real strict TypeScript
-checking, type-aware stable Oxlint, formatting verification, and Bun tests.
+checking, type-aware stable Oxlint, formatting verification, and the unified
+Bun-hosted Vitest suite with @effect/vitest. bun run test explicitly launches
+Vitest through Bun; the runtime test checks process.versions.bun inside a worker.
+Native SQLite/process tests keep real services, while pure contract properties
+use Effect test services. Temporary fixtures are isolated per test or generated
+property evaluation.
 Native bun lint is not used because it is canary-only in stable Bun 1.4.4.
 
 The token has contents: read only and checkout does not persist credentials.

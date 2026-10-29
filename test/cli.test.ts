@@ -12,17 +12,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { afterEach, test } from "bun:test";
+import { onTestFinished, test } from "@effect/vitest";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const directories: string[] = [];
-afterEach(() => {
-  for (const directory of directories.splice(0))
-    rmSync(directory, { recursive: true, force: true });
-});
 function temporaryDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), "robodocks-cli-"));
-  directories.push(directory);
+  onTestFinished(() => rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
 function cli(args: string[]) {

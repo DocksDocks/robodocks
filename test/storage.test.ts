@@ -1,21 +1,19 @@
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { Database } from "bun:sqlite";
-import { afterEach, test } from "bun:test";
+import { it, test } from "@effect/vitest";
 import { Effect, Exit } from "effect";
 import { withReviewer } from "../src/reviewer.ts";
 import type { Reviewer } from "../src/reviewer.ts";
 import { ContractError } from "../src/validation.ts";
 import {
   database,
-  cleanupDatabases,
   emptySnapshot,
   expectCode,
   fixtures,
   runReviewer,
+  reviewerEffect,
 } from "./helpers.ts";
-
-afterEach(cleanupDatabases);
 
 test("a foreign sqlite-prefixed name is not confused with SQLite's reserved literal prefix", async () => {
   const { policy } = fixtures();
@@ -88,20 +86,23 @@ test("exact deliveries and observations remain deduplicated after closing and re
   );
 });
 
-test("SQLite diagnostics report the enabled durability and integrity settings", () => {
-  const { policy } = fixtures();
-  return runReviewer(policy, (reviewer) =>
-    Effect.sync(() => {
-      assert.match(reviewer.storage.sqliteVersion, /^\d+\.\d+\.\d+$/);
-      assert.equal(reviewer.storage.schemaVersion, 1);
-      assert.equal(reviewer.storage.journalMode, "wal");
-      assert.equal(reviewer.storage.synchronous, 2);
-      assert.equal(reviewer.storage.foreignKeys, 1);
-      assert.equal(reviewer.storage.busyTimeoutMs, 5000);
-      assert.ok(Object.isFrozen(reviewer.storage));
-    }),
-  );
-});
+it.live(
+  "SQLite diagnostics report the enabled durability and integrity settings",
+  () => {
+    const { policy } = fixtures();
+    return reviewerEffect(policy, (reviewer) =>
+      Effect.sync(() => {
+        assert.match(reviewer.storage.sqliteVersion, /^\d+\.\d+\.\d+$/);
+        assert.equal(reviewer.storage.schemaVersion, 1);
+        assert.equal(reviewer.storage.journalMode, "wal");
+        assert.equal(reviewer.storage.synchronous, 2);
+        assert.equal(reviewer.storage.foreignKeys, 1);
+        assert.equal(reviewer.storage.busyTimeoutMs, 5000);
+        assert.ok(Object.isFrozen(reviewer.storage));
+      }),
+    );
+  },
+);
 
 test("acknowledgement and closure persist without creating a follow-up after restart", async () => {
   const { policy, request } = fixtures();
@@ -302,79 +303,86 @@ test("inconsistent migration metadata is rejected before persistent journal chan
   }
 });
 
-test("parallel effects sharing a reviewer reserve one exact observation", () => {
-  const { policy, request } = fixtures();
-  return runReviewer(policy, (reviewer) =>
-    Effect.gen(function* () {
-      const plans = yield* Effect.all(
-        [reviewer.plan(request), reviewer.plan(request)],
-        { concurrency: "unbounded" },
-      );
-      assert.equal(plans.flatMap((plan) => plan.intents).length, 1);
-      assert.deepEqual(plans.map((plan) => plan.deliveryStatus).sort(), [
-        "accepted",
-        "duplicate",
-      ]);
-      const snapshot = yield* reviewer.snapshot();
-      assert.equal(snapshot.deliveries.length, 1);
-      assert.equal(snapshot.findings.length, 1);
-      assert.equal(snapshot.outbox.length, 1);
-    }),
-  );
-});
+it.live(
+  "parallel effects sharing a reviewer reserve one exact observation",
+  () => {
+    const { policy, request } = fixtures();
+    return reviewerEffect(policy, (reviewer) =>
+      Effect.gen(function* () {
+        const plans = yield* Effect.all(
+          [reviewer.plan(request), reviewer.plan(request)],
+          { concurrency: "unbounded" },
+        );
+        assert.equal(plans.flatMap((plan) => plan.intents).length, 1);
+        assert.deepEqual(plans.map((plan) => plan.deliveryStatus).sort(), [
+          "accepted",
+          "duplicate",
+        ]);
+        const snapshot = yield* reviewer.snapshot();
+        assert.equal(snapshot.deliveries.length, 1);
+        assert.equal(snapshot.findings.length, 1);
+        assert.equal(snapshot.outbox.length, 1);
+      }),
+    );
+  },
+);
 
-test("eight concurrent CLI processes initialize one fresh ledger and accept one delivery", async () => {
-  const filename = database();
-  const cwd = fileURLToPath(new URL("../", import.meta.url));
-  const children = Array.from({ length: 8 }, () =>
-    Bun.spawn(
-      [
-        process.execPath,
-        "src/cli.ts",
-        "--policy",
-        "examples/policy.json",
-        "--input",
-        "examples/review.json",
-        "--database",
-        filename,
-      ],
-      { cwd, stdout: "pipe", stderr: "pipe", timeout: 10_000 },
-    ),
-  );
-  const results = await Promise.all(
-    children.map(async (child) => {
-      const [exitCode, stdout, stderr] = await Promise.all([
-        child.exited,
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
-      ]);
-      return { exitCode, stdout, stderr };
-    }),
-  );
-  const plans = results.map((result) => {
-    assert.equal(result.exitCode, 0, result.stderr);
-    assert.equal(result.stderr, "");
-    const output = JSON.parse(result.stdout) as {
-      plan: { deliveryStatus: string; intents: unknown[] };
-    };
-    assert.ok(["accepted", "duplicate"].includes(output.plan.deliveryStatus));
-    return output.plan;
-  });
-  assert.equal(
-    plans.filter((plan) => plan.deliveryStatus === "accepted").length,
-    1,
-  );
-  assert.equal(plans.flatMap((plan) => plan.intents).length, 1);
-  const { policy } = fixtures();
-  const snapshot = await runReviewer(
-    policy,
-    (reviewer) => reviewer.snapshot(),
-    filename,
-  );
-  assert.equal(snapshot.deliveries.length, 1);
-  assert.equal(snapshot.findings.length, 1);
-  assert.equal(snapshot.outbox.length, 1);
-}, 15_000);
+test(
+  "eight concurrent CLI processes initialize one fresh ledger and accept one delivery",
+  { timeout: 15_000 },
+  async () => {
+    const filename = database();
+    const cwd = fileURLToPath(new URL("../", import.meta.url));
+    const children = Array.from({ length: 8 }, () =>
+      Bun.spawn(
+        [
+          process.execPath,
+          "src/cli.ts",
+          "--policy",
+          "examples/policy.json",
+          "--input",
+          "examples/review.json",
+          "--database",
+          filename,
+        ],
+        { cwd, stdout: "pipe", stderr: "pipe", timeout: 10_000 },
+      ),
+    );
+    const results = await Promise.all(
+      children.map(async (child) => {
+        const [exitCode, stdout, stderr] = await Promise.all([
+          child.exited,
+          new Response(child.stdout).text(),
+          new Response(child.stderr).text(),
+        ]);
+        return { exitCode, stdout, stderr };
+      }),
+    );
+    const plans = results.map((result) => {
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.equal(result.stderr, "");
+      const output = JSON.parse(result.stdout) as {
+        plan: { deliveryStatus: string; intents: unknown[] };
+      };
+      assert.ok(["accepted", "duplicate"].includes(output.plan.deliveryStatus));
+      return output.plan;
+    });
+    assert.equal(
+      plans.filter((plan) => plan.deliveryStatus === "accepted").length,
+      1,
+    );
+    assert.equal(plans.flatMap((plan) => plan.intents).length, 1);
+    const { policy } = fixtures();
+    const snapshot = await runReviewer(
+      policy,
+      (reviewer) => reviewer.snapshot(),
+      filename,
+    );
+    assert.equal(snapshot.deliveries.length, 1);
+    assert.equal(snapshot.findings.length, 1);
+    assert.equal(snapshot.outbox.length, 1);
+  },
+);
 
 test("narrower policy cannot read or acknowledge another repository's persisted state", async () => {
   const { policy, request } = fixtures();

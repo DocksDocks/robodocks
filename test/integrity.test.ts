@@ -1,16 +1,14 @@
 import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
-import { afterEach, test } from "bun:test";
+import { it, test } from "@effect/vitest";
 import { Effect } from "effect";
 import {
-  cleanupDatabases,
   database,
   expectCode,
   fixtures,
   runReviewer,
+  reviewerEffect,
 } from "./helpers.ts";
-
-afterEach(cleanupDatabases);
 
 function rawState(filename: string) {
   const db = new Database(filename, { strict: true });
@@ -212,47 +210,51 @@ test("lifecycle authorization precedes reading excluded repositories' payloads",
   );
 });
 
-test("capacity counts new unique observations and rolls back genuine overflow", () => {
-  const { policy, request } = fixtures();
-  policy.maxFindings = 100;
-  const prototype = request.findings[0]!;
-  const candidate = (index: number) => ({
-    ...prototype,
-    ruleId: "capacity." + index,
-  });
-  return runReviewer(policy, (reviewer) =>
-    Effect.gen(function* () {
-      for (let offset = 0; offset < 9999; offset += 100) {
-        request.deliveryId = "seed-" + offset;
-        request.findings = Array.from(
-          { length: Math.min(100, 9999 - offset) },
-          (_, index) => candidate(offset + index),
-        );
-        yield* reviewer.plan(request);
-      }
-      request.deliveryId = "known-only";
-      request.findings = [candidate(0), candidate(1)];
-      assert.equal((yield* reviewer.plan(request)).intents.length, 0);
+it.live(
+  "capacity counts new unique observations and rolls back genuine overflow",
+  () => {
+    const { policy, request } = fixtures();
+    policy.maxFindings = 100;
+    const prototype = request.findings[0]!;
+    const candidate = (index: number) => ({
+      ...prototype,
+      ruleId: "capacity." + index,
+    });
+    return reviewerEffect(policy, (reviewer) =>
+      Effect.gen(function* () {
+        for (let offset = 0; offset < 9999; offset += 100) {
+          request.deliveryId = "seed-" + offset;
+          request.findings = Array.from(
+            { length: Math.min(100, 9999 - offset) },
+            (_, index) => candidate(offset + index),
+          );
+          yield* reviewer.plan(request);
+        }
+        request.deliveryId = "known-only";
+        request.findings = [candidate(0), candidate(1)];
+        assert.equal((yield* reviewer.plan(request)).intents.length, 0);
 
-      request.deliveryId = "overflow-with-one-slot";
-      request.findings = [candidate(9999), candidate(10000)];
-      const before = yield* reviewer.snapshot();
-      yield* expectCode(reviewer.plan(request), "LEDGER_FULL");
-      assert.deepEqual(yield* reviewer.snapshot(), before);
+        request.deliveryId = "overflow-with-one-slot";
+        request.findings = [candidate(9999), candidate(10000)];
+        const before = yield* reviewer.snapshot();
+        yield* expectCode(reviewer.plan(request), "LEDGER_FULL");
+        assert.deepEqual(yield* reviewer.snapshot(), before);
 
-      request.deliveryId = "known-and-last-new";
-      request.findings = [candidate(0), candidate(9999), candidate(9999)];
-      const final = yield* reviewer.plan(request);
-      assert.equal(final.intents.length, 1);
-      assert.equal(final.suppressedFindingIds.length, 2);
-      assert.equal((yield* reviewer.snapshot()).findings.length, 10000);
+        request.deliveryId = "known-and-last-new";
+        request.findings = [candidate(0), candidate(9999), candidate(9999)];
+        const final = yield* reviewer.plan(request);
+        assert.equal(final.intents.length, 1);
+        assert.equal(final.suppressedFindingIds.length, 2);
+        assert.equal((yield* reviewer.snapshot()).findings.length, 10000);
 
-      request.deliveryId = "known-when-full";
-      request.findings = [candidate(9999), candidate(1)];
-      assert.equal((yield* reviewer.plan(request)).intents.length, 0);
-      request.deliveryId = "new-when-full";
-      request.findings = [candidate(10000)];
-      yield* expectCode(reviewer.plan(request), "LEDGER_FULL");
-    }),
-  );
-}, 15000);
+        request.deliveryId = "known-when-full";
+        request.findings = [candidate(9999), candidate(1)];
+        assert.equal((yield* reviewer.plan(request)).intents.length, 0);
+        request.deliveryId = "new-when-full";
+        request.findings = [candidate(10000)];
+        yield* expectCode(reviewer.plan(request), "LEDGER_FULL");
+      }),
+    );
+  },
+  15000,
+);

@@ -3,24 +3,24 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
+import { onTestFinished } from "@effect/vitest";
 import type { Policy, ReviewRequest } from "../src/contracts.ts";
 import { withReviewer } from "../src/reviewer.ts";
 import type { Reviewer } from "../src/reviewer.ts";
 
 export type Mutable<T> = { -readonly [K in keyof T]: Mutable<T[K]> };
-const directories: string[] = [];
-
-export function cleanupDatabases(): void {
-  for (const directory of directories.splice(0)) {
-    rmSync(directory, { recursive: true, force: true });
-  }
-}
-
 export function database(): string {
   const directory = mkdtempSync(join(tmpdir(), "robodocks-ledger-test-"));
-  directories.push(directory);
+  onTestFinished(() => rmSync(directory, { recursive: true, force: true }));
   return join(directory, "ledger.sqlite");
 }
+
+// Each property evaluation (including shrinking) owns a separate scope and directory.
+export const scopedDatabase = Effect.acquireRelease(
+  Effect.sync(() => mkdtempSync(join(tmpdir(), "robodocks-property-test-"))),
+  (directory) =>
+    Effect.sync(() => rmSync(directory, { recursive: true, force: true })),
+).pipe(Effect.map((directory) => join(directory, "ledger.sqlite")));
 
 export function fixtures(): {
   policy: Mutable<Policy>;
@@ -36,12 +36,20 @@ export function fixtures(): {
   };
 }
 
+export function reviewerEffect<A, E>(
+  policy: unknown,
+  use: (reviewer: Reviewer) => Effect.Effect<A, E>,
+  filename = database(),
+) {
+  return withReviewer(policy, filename, use);
+}
+
 export function runReviewer<A, E>(
   policy: unknown,
   use: (reviewer: Reviewer) => Effect.Effect<A, E>,
   filename = database(),
 ): Promise<A> {
-  return Effect.runPromise(withReviewer(policy, filename, use));
+  return Effect.runPromise(reviewerEffect(policy, use, filename));
 }
 
 export function expectCode<A, E extends { readonly code: string }>(

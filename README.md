@@ -27,7 +27,8 @@ repositories and external services; the selected local ledger is written.
 ## Setup and commands
 
 Use **Bun 1.4.4**, pinned in .bun-version. Bun supplies the runtime, package
-manager, formatter, test runner, and strict TypeScript checker. There is no Node
+manager, formatter, and strict TypeScript checker. Tests use Vitest hosted
+explicitly by Bun, with @effect/vitest for Effect-aware tests. There is no Node
 runtime or npm installation step.
 
 Set DO_NOT_TRACK=1 in your environment to disable Bun crash-report uploads and
@@ -54,14 +55,14 @@ with a nonzero exit code; output may contain source evidence, so keep it private
 
 Development commands:
 
-| Command                     | Purpose                                              |
-| --------------------------- | ---------------------------------------------------- |
-| bun check --no-script       | Strict, no-emit TypeScript checking                  |
-| bun fmt --no-script         | Format supported project files                       |
-| bun fmt --no-script --check | Require formatting without rewriting files           |
-| bun run lint                | Stable Oxlint with type-aware rules, zero warnings   |
-| bun test                    | Contract, CLI, resource, and SQLite regression tests |
-| bun run check               | Type checking, lint, formatting check, and tests     |
+| Command                     | Purpose                                            |
+| --------------------------- | -------------------------------------------------- |
+| bun check --no-script       | Strict, no-emit TypeScript checking                |
+| bun fmt --no-script         | Format supported project files                     |
+| bun fmt --no-script --check | Require formatting without rewriting files         |
+| bun run lint                | Stable Oxlint with type-aware rules, zero warnings |
+| bun run test                | Bun-hosted Vitest contract, CLI, and SQLite tests  |
+| bun run check               | Type checking, lint, formatting check, and tests   |
 
 The --no-script switches select Bun's built-in commands rather than similarly
 named package scripts. Bun 1.4.4 does **not** expose native bun lint; that command
@@ -72,6 +73,17 @@ access, exact optional properties, unused code, and no implicit overrides.
 TypeScript 7.0.2 is pinned as a compatible editor baseline; Bun performs the
 actual strict-check gate and may incorporate newer checker behavior.
 There is no separate transpilation or build step.
+
+Use **bun run test**, not bun test: one runner executes the entire suite. The
+script launches Vitest with Bun's --bun flag; configuration and a worker test
+reject an accidental Node runtime. Native SQLite and subprocess cases use live
+services (it.live or ordinary Vitest tests), never a simulated database or fake
+clock. Pure Effect contract properties use it.effect. Each test owns its temporary
+files, and each database-backed property evaluation, including shrinking, acquires
+a fresh scoped database. No mutable reviewer layer is shared across tests. The
+configuration uses one isolated fork worker and sequential tests for bounded
+native-process load; individual tests may explicitly exercise concurrent clients.
+Seeded properties supplement, rather than replace, the explicit regressions.
 
 ## Library boundary
 
@@ -103,7 +115,10 @@ version, update the lockfile, and run the full checks before treating an update 
 validated. This does not authorize production deployment or automatic upgrades.
 
 Current direct dependencies are pinned: Effect 4.1.0, Bun types 1.4.4, TypeScript
-7.0.2, Oxlint 1.90.0, and its type-aware engine 7.0.2005. Bun has no official LTS
+7.0.2, Oxlint 1.90.0, its type-aware engine 7.0.2005, Vitest 5.0.5, and
+@effect/vitest 4.0.6. The released @effect/vitest package is stable, but its
+integration API is explicitly marked unstable upstream; it is pinned and used
+only in development tests, not application code. Bun has no official LTS
 channel; this project uses its verified stable release. Effect's explicitly
 unstable SQL APIs are intentionally avoided: storage uses built-in bun:sqlite
 behind a small Effect resource boundary. See the

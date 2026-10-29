@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { test } from "bun:test";
+import { test } from "@effect/vitest";
 
 test("runtime is a stable Bun release meeting the reviewed baseline", () => {
+  assert.ok(process.versions.bun, "Vitest workers must run in Bun, not Node");
+  assert.equal(process.versions.bun, Bun.version);
   const pin = readFileSync(
     new URL("../.bun-version", import.meta.url),
     "utf8",
