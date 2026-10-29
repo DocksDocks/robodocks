@@ -81,7 +81,8 @@ services (it.live or ordinary Vitest tests), never a simulated database or fake
 clock. Pure Effect contract properties use it.effect. Each test owns its temporary
 files, and each database-backed property evaluation, including shrinking, acquires
 a fresh scoped database. No mutable reviewer layer is shared across tests. The
-configuration uses one isolated fork worker and sequential tests for bounded
+configuration uses up to two isolated fork workers and sequential tests within
+each file for bounded
 native-process load; individual tests may explicitly exercise concurrent clients.
 Seeded properties supplement, rather than replace, the explicit regressions.
 

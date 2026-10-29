@@ -39,6 +39,15 @@ suite and demo on the actual selected runtime. Linux/Bun 1.4.4 reports SQLite
 3.53.4 in local verification; macOS and Windows are not claimed tested. Diagnostics
 must report the actual engine rather than infer it from the Bun version.
 
+## Contributor acceptance criteria
+
+Behavioral changes require focused regression coverage. For a bug fix, demonstrate
+that the regression fails against the previous behavior where practical. Do not
+weaken checks or skip regressions merely to obtain a green run. Before handoff,
+run the [README's aggregate checks and synthetic demo](../README.md#setup-and-commands)
+against the final tree; targeted tests do not replace them. Report what passed,
+failed, or was not run, including the exact blocker for incomplete verification.
+
 Local success is not hosted CI success. Inspect checks for the exact published
 commit before treating the update as hosted-validated or ready to merge.
 

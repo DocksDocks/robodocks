@@ -8,7 +8,7 @@ export default defineConfig({
   test: {
     include: ["test/**/*.test.ts"],
     pool: "forks",
-    maxWorkers: 1,
+    maxWorkers: 2,
     isolate: true,
     sequence: { concurrent: false },
     testTimeout: 10_000,

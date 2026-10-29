@@ -67,10 +67,18 @@ The v1 transaction creates:
 - `findings`: exact-observation identity, target, lifecycle status.
 - `outbox`: one pending/acknowledged proposal per finding, with a foreign key.
 
-All candidate values are bound SQL parameters. Request validation precedes any
-finding/delivery writes. Delivery insertion, finding insertion, and outbox
-reservation commit together or all roll back. Read snapshots use a single read
-transaction and exclude repositories outside the active operator policy.
+All candidate values are bound SQL parameters. Request validation produces a
+private copy; its delivery digest is computed before the write transaction.
+Database-dependent replay, deduplication, and capacity decisions remain inside
+that transaction. Delivery insertion, finding insertion, and outbox reservation
+commit together or all roll back.
+
+Read snapshots materialize both the observation and delivery result sets in a
+single read transaction, excluding repositories outside the active operator
+policy. JSON parsing, schema/integrity validation, and result mapping then run on
+those owned rows after the transaction closes, still inside the sanitized
+storage-error boundary. This keeps pure computation outside transaction lifetimes
+without splitting the database snapshot.
 
 Snapshot repository predicates are bound in SQL before payloads are read, with
 supporting repository indexes. Lifecycle operations first authorize a
@@ -98,3 +106,16 @@ does not reopen observations, and does not automatically create follow-up work.
 SQLite transactions provide local atomicity and durable deduplication, **not
 exactly-once GitHub publication**. A future publisher still needs explicit write
 authority, fresh-head checks, safe rendering, and uncertain-write reconciliation.
+
+## Where to change behavior
+
+| Change                                                 | Start here                              | Regression coverage                                |
+| ------------------------------------------------------ | --------------------------------------- | -------------------------------------------------- |
+| Input shape, policy, evidence validation               | `src/contracts.ts`, `src/validation.ts` | `test/reviewer.test.ts`, `test/properties.test.ts` |
+| Planning, replay, lifecycle, observation integrity     | `src/reviewer.ts`                       | `test/reviewer.test.ts`, `test/integrity.test.ts`  |
+| Database ownership, initialization, settings, lifetime | `src/storage.ts`                        | `test/storage.test.ts`                             |
+| CLI arguments, input/output, sanitized failures        | `src/cli.ts`                            | `test/cli.test.ts`                                 |
+| Runtime, checker, linter, test runner                  | Root configs and CI workflow            | `test/runtime.test.ts`, full aggregate             |
+
+Reuse `test/helpers.ts` for synthetic fixtures and scoped test databases; the
+[README](../README.md#setup-and-commands) defines test-runner and isolation rules.

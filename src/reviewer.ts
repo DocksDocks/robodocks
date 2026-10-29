@@ -185,10 +185,11 @@ function makeReviewer(
     plan(input) {
       return validateRequest(input, policy).pipe(
         Effect.flatMap((request) =>
-          storeOperation(() =>
-            db
+          storeOperation(() => {
+            // Validation owns this copy; hashing needs no database lock.
+            const digest = hash(request);
+            return db
               .transaction((): ReviewPlan => {
-                const digest = hash(request);
                 const previous = db
                   .query<{ digest: string; repository: string }, [string]>(
                     "SELECT digest, repository FROM deliveries WHERE id = ?",
@@ -276,8 +277,8 @@ function makeReviewer(
                   suppressedFindingIds,
                 };
               })
-              .immediate(),
-          ),
+              .immediate();
+          }),
         ),
       );
     },
@@ -351,9 +352,9 @@ function makeReviewer(
       );
     },
     snapshot() {
-      return storeOperation(() =>
-        db
-          .transaction((): Snapshot => {
+      return storeOperation(() => {
+        const rows = db
+          .transaction(() => {
             const observations = db
               .query<ObservationRow, string[]>(
                 observationSelect +
@@ -361,8 +362,7 @@ function makeReviewer(
                   repositoryPlaceholders +
                   ") ORDER BY f.rowid",
               )
-              .all(...policy.allowedRepositories)
-              .map(decodeObservation);
+              .all(...policy.allowedRepositories);
             const deliveries = db
               .query<{ id: string; digest: string }, string[]>(
                 "SELECT id, digest FROM deliveries WHERE repository IN (" +
@@ -370,15 +370,20 @@ function makeReviewer(
                   ") ORDER BY rowid",
               )
               .all(...policy.allowedRepositories);
-            return {
-              schemaVersion: 1,
-              deliveries,
-              findings: observations.map((item) => item.record),
-              outbox: observations.map((item) => item.intent),
-            };
+            // Materialize both result sets under the same read snapshot.
+            return { observations, deliveries };
           })
-          .deferred(),
-      );
+          .deferred();
+        // Decode owned rows after releasing the read transaction, but keep
+        // parsing, schema, and integrity failures within storeOperation.
+        const observations = rows.observations.map(decodeObservation);
+        return {
+          schemaVersion: 1,
+          deliveries: rows.deliveries,
+          findings: observations.map((item) => item.record),
+          outbox: observations.map((item) => item.intent),
+        } satisfies Snapshot;
+      });
     },
   };
 }
