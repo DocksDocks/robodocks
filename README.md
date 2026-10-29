@@ -22,7 +22,8 @@ comments, open issues, modify reviewed source, merge, or deploy.
 
 These checks establish **structural validity**, not factual correctness,
 confidence calibration, or review completeness. "Read-only" applies to reviewed
-repositories and external services; the selected local ledger is written.
+repositories and external services; planning writes the selected local ledger.
+Explicit inspection does not admit deliveries or change ledger records.
 
 ## Setup and commands
 
@@ -40,18 +41,53 @@ telemetry. CI sets it explicitly. No application credentials are needed.
 
 The demo explicitly uses local/demo.sqlite, creating its parent directory when
 needed. Repeating it reopens the same ledger: no duplicate intent is created and
-the original pending intent remains in the snapshot. For another experiment,
+the original pending intent remains available through explicit inspection. For another experiment,
 choose a different database file instead of deleting an existing working ledger.
 
 To emit only JSON without a package-script banner:
 
-    bun src/cli.ts --policy examples/policy.json --input examples/review.json --database local/demo.sqlite
+    bun src/cli.ts plan --policy examples/policy.json --input examples/review.json --database local/demo.sqlite
 
-The CLI reads the two explicitly supplied JSON inputs and writes only its
-explicitly selected local SQLite ledger (including SQLite WAL/SHM sidecars).
+Planning reads the two explicitly supplied JSON inputs and writes only its
+selected local SQLite ledger (including SQLite WAL/SHM sidecars). Its JSON contains
+schemaVersion: 1, operation: "plan", the current delivery outcome, compact
+intent/finding IDs and statuses, and storage diagnostics. It does **not** return
+finding prose, source evidence, or a historical ledger snapshot. A successful
+plan is independent of unrelated historical inspection failures.
+
+Inspect an existing ledger separately, without a review input or a new delivery:
+
+    bun src/cli.ts inspect --policy examples/policy.json --database local/demo.sqlite --repository example-owner/example-project --status proposed --limit 20
+
+Inspection requires one explicitly allowlisted repository. Status refers to the
+finding lifecycle: proposed (default), published, closed, or all. Limit defaults
+to 20 and must be 1–100. Its JSON has schemaVersion: 1, operation: "inspect",
+repository, status, items (each a finding record plus its intent/payload), and
+nextCursor (null when finished). Pass a returned cursor with --cursor while
+keeping the same database, repository, and status. Each page is a consistent
+read; the cursor excludes findings appended after the first page's high-water
+mark, but lifecycle changes between pages are not frozen. Restart inspection for
+a fresh view. Cursors are continuation hints, not signed authorization or durable
+historical snapshots.
+
+Inspection opens an existing regular database read-only, never creates a missing
+ledger or parent directory, never migrates or changes journal settings, and
+remains available at capacity or after tightening admission confidence. SQLite
+may still use/create coordination sidecars for a live WAL database; read-only
+here means no ledger/schema writes, not zero filesystem activity. See
+[local database operations](docs/security.md#local-database-operations).
+
+The old flags-only invocation remains an alias for plan. **Draft JSON change:**
+the old top-level snapshot and intent finding payloads are no longer emitted by
+the CLI. Use explicit inspection for bounded payload access; the library APIs
+remain compatible.
+
 Repository paths inside an input are identifiers, not local files to execute or
-open. Policy is never loaded from pull-request content. Errors are JSON on stderr
-with a nonzero exit code; output may contain source evidence, so keep it private.
+open. Policy is never loaded from pull-request content. Errors are sanitized JSON
+on stderr with a nonzero exit code. Inspection includes untrusted source evidence;
+keep it and the local ledger out of public logs. If plan output fails after a
+commit, retry the identical delivery and inspect separately rather than assuming
+no records were saved.
 
 Development commands:
 
@@ -82,8 +118,7 @@ clock. Pure Effect contract properties use it.effect. Each test owns its tempora
 files, and each database-backed property evaluation, including shrinking, acquires
 a fresh scoped database. No mutable reviewer layer is shared across tests. The
 configuration uses up to two isolated fork workers and sequential tests within
-each file for bounded
-native-process load; individual tests may explicitly exercise concurrent clients.
+each file for bounded native-process load; individual tests may explicitly exercise concurrent clients.
 Seeded properties supplement, rather than replace, the explicit regressions.
 
 ## Library boundary
@@ -102,6 +137,12 @@ reviewer; the database connection closes when the scoped program finishes.
       })
     );
     const result = await Effect.runPromise(program);
+
+For bounded read-only access use inspectLedger from src/inspection.ts with
+operator policy, an existing filename, and { repository, status, limit, cursor? }.
+It returns an Effect and owns its connection scope. The legacy reviewer.snapshot()
+remains a full allowlist-wide diagnostic for library callers; it is not a bounded
+production inspection interface and is never called by the CLI plan command.
 
 Inputs are illustrated in examples/policy.json and examples/review.json. A future
 source adapter must authenticate the repository and independently fetch the
@@ -134,8 +175,10 @@ Read [architecture](docs/architecture.md), [security](docs/security.md), and
 maintaining another instruction tree.
 
 The ledger is designed for a local filesystem and a small single-host workload.
-It verifies WAL, FULL synchronous mode, foreign keys, a five-second busy timeout,
-and SQLite 3.51.3 or newer. Diagnostics report the **actual** SQLite version.
+Planning verifies WAL, FULL synchronous mode, foreign keys, a five-second busy
+timeout, and SQLite 3.51.3 or newer. Its diagnostics report the **actual** SQLite
+version. Inspection checks ownership/schema and the same minimum engine version
+without enabling or attesting writer durability settings.
 Bun can use system SQLite on macOS, so a Bun version pin alone does not guarantee
 the same SQLite engine across operating systems. Linux is the verification
 target; macOS and Windows are not claimed tested. No network/shared filesystem,

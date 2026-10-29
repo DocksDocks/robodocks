@@ -25,6 +25,6 @@
     "format": "bun fmt --no-script",
     "lint": "bun --bun run oxlint --type-aware --max-warnings 0 --report-unused-disable-directives src test vitest.config.ts",
     "check": "bun check --no-script && bun run lint && bun fmt --no-script --check && bun run test",
-    "demo": "bun src/cli.ts --policy examples/policy.json --input examples/review.json --database local/demo.sqlite"
+    "demo": "bun src/cli.ts plan --policy examples/policy.json --input examples/review.json --database local/demo.sqlite"
   }
 }

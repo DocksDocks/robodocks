@@ -3,10 +3,70 @@ import { open } from "node:fs/promises";
 import type { Writable } from "node:stream";
 import { Effect, Exit } from "effect";
 import { withReviewer } from "./reviewer.ts";
-import { ContractError } from "./validation.ts";
+import { inspectLedger } from "./inspection.ts";
+import { ContractError, requireCondition } from "./validation.ts";
 
 const usage =
-  "Usage: bun src/cli.ts --policy <operator-policy.json> --input <review-request.json> --database <local-ledger.sqlite>";
+  "Usage: bun src/cli.ts plan --policy <policy.json> --input <review.json> --database <ledger.sqlite>\n" +
+  "       bun src/cli.ts inspect --policy <policy.json> --database <existing-ledger.sqlite> --repository <owner/repo> [--status proposed|published|closed|all] [--limit 1..100] [--cursor <cursor>]\n" +
+  "The legacy flags-only form is an alias for plan. Inspection defaults to proposed and limit 20.";
+
+let activeOperation: "plan" | "inspect" | undefined;
+
+function parseArguments(args: string[]) {
+  const operation = args[0] === "inspect" ? "inspect" : "plan";
+  const flags =
+    args[0] === "plan" || args[0] === "inspect" ? args.slice(1) : args;
+  const allowed =
+    operation === "plan"
+      ? ["--policy", "--input", "--database"]
+      : [
+          "--policy",
+          "--database",
+          "--repository",
+          "--status",
+          "--limit",
+          "--cursor",
+        ];
+  const values = new Map<string, string>();
+  for (let index = 0; index < flags.length; index += 2) {
+    const key = flags[index];
+    const value = flags[index + 1];
+    requireCondition(
+      key &&
+        allowed.includes(key) &&
+        !values.has(key) &&
+        value &&
+        !value.startsWith("--"),
+      "USAGE",
+      usage,
+    );
+    values.set(key, value);
+  }
+  const policyPath = values.get("--policy");
+  const databasePath = values.get("--database");
+  requireCondition(policyPath && databasePath, "USAGE", usage);
+  if (operation === "plan") {
+    const inputPath = values.get("--input");
+    requireCondition(inputPath, "USAGE", usage);
+    return { operation, policyPath, databasePath, inputPath } as const;
+  }
+  const repository = values.get("--repository");
+  const limit = values.get("--limit") ?? "20";
+  requireCondition(repository && /^[0-9]+$/.test(limit), "USAGE", usage);
+  const cursor = values.get("--cursor");
+  return {
+    operation,
+    policyPath,
+    databasePath,
+    query: {
+      repository,
+      status: values.get("--status") ?? "proposed",
+      limit: Number(limit),
+      ...(cursor === undefined ? {} : { cursor }),
+    },
+  } as const;
+}
 
 function writeText(
   stream: Writable,
@@ -55,7 +115,11 @@ function output(text: string) {
     catch: () =>
       new ContractError(
         "OUTPUT",
-        "Could not write review output; the delivery may already be committed",
+        activeOperation === "plan"
+          ? "Could not write review output; the delivery may already be committed"
+          : activeOperation === "inspect"
+            ? "Could not write inspection output; no delivery was admitted"
+            : "Could not write output; no delivery was admitted",
       ),
   });
 }
@@ -122,35 +186,49 @@ function readJson(path: string): Effect.Effect<unknown, ContractError> {
 
 const main = Effect.gen(function* () {
   const args = process.argv.slice(2);
-  if (args.length === 1 && args[0] === "--help") {
+  if (
+    (args.length === 1 && args[0] === "--help") ||
+    (args.length === 2 &&
+      ["plan", "inspect"].includes(args[0] ?? "") &&
+      args[1] === "--help")
+  ) {
     yield* output(usage + "\n");
     return;
   }
-  if (
-    args.length !== 6 ||
-    args[0] !== "--policy" ||
-    args[2] !== "--input" ||
-    args[4] !== "--database" ||
-    args[1]?.startsWith("--") ||
-    args[3]?.startsWith("--") ||
-    args[5]?.startsWith("--")
-  ) {
-    return yield* Effect.fail(new ContractError("USAGE", usage));
-  }
-  const policyPath = args[1];
-  const inputPath = args[3];
-  const databasePath = args[5];
-  if (!policyPath || !inputPath || !databasePath)
-    return yield* Effect.fail(new ContractError("USAGE", usage));
-  const policy = yield* readJson(policyPath);
-  const input = yield* readJson(inputPath);
-  const result = yield* withReviewer(policy, databasePath, (reviewer) =>
-    Effect.gen(function* () {
-      const plan = yield* reviewer.plan(input);
-      const snapshot = yield* reviewer.snapshot();
-      return { plan, snapshot, storage: reviewer.storage };
-    }),
-  );
+  const options = yield* Effect.try({
+    try: () => parseArguments(args),
+    catch: () => new ContractError("USAGE", usage),
+  });
+  activeOperation = options.operation;
+  const policy = yield* readJson(options.policyPath);
+  const result =
+    options.operation === "inspect"
+      ? yield* inspectLedger(policy, options.databasePath, options.query)
+      : yield* Effect.gen(function* () {
+          const input = yield* readJson(options.inputPath);
+          return yield* withReviewer(policy, options.databasePath, (reviewer) =>
+            Effect.gen(function* () {
+              const plan = yield* reviewer.plan(input);
+              return {
+                schemaVersion: 1,
+                operation: "plan",
+                plan: {
+                  ...plan,
+                  intents: plan.intents.map(
+                    ({ id, findingId, kind, dryRun, status }) => ({
+                      id,
+                      findingId,
+                      kind,
+                      dryRun,
+                      status,
+                    }),
+                  ),
+                },
+                storage: reviewer.storage,
+              };
+            }),
+          );
+        });
   // Let signals queued during a synchronous native call reach AbortController.
   // An already committed transaction is not rolled back by late interruption.
   yield* Effect.sleep("1 millis");
@@ -190,7 +268,9 @@ try {
     process.exitCode = interruptionCode;
     await reportFailure(
       "INTERRUPTED",
-      "Reviewer interrupted; an in-flight delivery may already be committed",
+      activeOperation === "plan"
+        ? "Reviewer interrupted; an in-flight delivery may already be committed"
+        : "Operation interrupted; no delivery was admitted",
     );
   } else if (Exit.isFailure(exit)) {
     process.exitCode = 1;

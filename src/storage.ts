@@ -1,5 +1,5 @@
 import { Database, SQLiteError } from "bun:sqlite";
-import { closeSync, mkdirSync, openSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { Data, Effect } from "effect";
 import { ContractError, requireCondition } from "./validation.ts";
@@ -33,7 +33,7 @@ export function storeOperation<A>(
           ? new StoreError({
               code: "STORAGE_BUSY",
               message:
-                "Reviewer storage is busy; retry the same delivery after the writer finishes",
+                "Reviewer storage is busy; retry the same operation after the writer finishes",
             })
           : new StoreError({
               code: "STORAGE",
@@ -110,10 +110,7 @@ function ownership(db: Database): number {
   return version;
 }
 
-function initialize(db: Database): StorageDiagnostics {
-  // Reject foreign/newer databases BEFORE changing persistent journal settings.
-  db.run("PRAGMA busy_timeout = 5000");
-  db.transaction(() => ownership(db)).deferred();
+function verifySQLiteVersion(db: Database): string {
   const sqliteVersion = db
     .query<{ version: string }, []>("SELECT sqlite_version() AS version")
     .get()?.version;
@@ -130,6 +127,14 @@ function initialize(db: Database): StorageDiagnostics {
     "SQLITE_VERSION",
     "SQLite 3.51.3 or newer is required for this WAL-backed ledger",
   );
+  return sqliteVersion;
+}
+
+function initialize(db: Database): StorageDiagnostics {
+  // Reject foreign/newer databases BEFORE changing persistent journal settings.
+  db.run("PRAGMA busy_timeout = 5000");
+  db.transaction(() => ownership(db)).deferred();
+  const sqliteVersion = verifySQLiteVersion(db);
   db.run("PRAGMA journal_mode = WAL");
   db.run("PRAGMA synchronous = FULL");
   db.run("PRAGMA foreign_keys = ON");
@@ -199,17 +204,55 @@ function initialize(db: Database): StorageDiagnostics {
   };
 }
 
+function validateDatabasePath(filename: string): void {
+  requireCondition(
+    filename.length > 0 &&
+      !filename.includes("\0") &&
+      filename !== ":memory:" &&
+      !filename.startsWith("file:"),
+    "DATABASE_PATH",
+    "Choose an explicit local database file, not a memory database or URI",
+  );
+}
+
+export function acquireReadOnlyStore(filename: string) {
+  return Effect.acquireRelease(
+    storeOperation(() => {
+      validateDatabasePath(filename);
+      ensure(
+        statSync(filename, { throwIfNoEntry: false })?.isFile(),
+        "DATABASE_PATH",
+        "Inspection requires an existing regular ledger file",
+      );
+      return new Database(filename, {
+        readonly: true,
+        create: false,
+        strict: true,
+      });
+    }),
+    (db) => Effect.sync(() => db.close(true)),
+  ).pipe(
+    Effect.tap((db) =>
+      storeOperation(() => {
+        // Connection-local only. Never run writable initialization or migration here.
+        db.run("PRAGMA busy_timeout = 5000");
+        db.transaction(() => {
+          ensure(
+            ownership(db) === SCHEMA_VERSION,
+            "DATABASE_VERSION",
+            "Inspection requires an initialized ledger",
+          );
+          verifySQLiteVersion(db);
+        }).deferred();
+      }),
+    ),
+  );
+}
+
 export function acquireStore(filename: string) {
   return Effect.acquireRelease(
     storeOperation(() => {
-      requireCondition(
-        filename.length > 0 &&
-          !filename.includes("\0") &&
-          filename !== ":memory:" &&
-          !filename.startsWith("file:"),
-        "DATABASE_PATH",
-        "Choose an explicit local database file, not a memory database or URI",
-      );
+      validateDatabasePath(filename);
       mkdirSync(dirname(filename), { recursive: true });
       try {
         closeSync(openSync(filename, "ax", 0o600));

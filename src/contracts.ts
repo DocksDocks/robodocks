@@ -94,6 +94,31 @@ export const RequestSchema = Schema.Struct({
 });
 export type ReviewRequest = typeof RequestSchema.Type;
 
+const InspectionStatus = Schema.Literals([
+  "proposed",
+  "published",
+  "closed",
+  "all",
+]);
+export const InspectionSchema = Schema.Struct({
+  repository: Repository,
+  status: InspectionStatus,
+  limit: PositiveInteger.check(Schema.isLessThanOrEqualTo(100)),
+  cursor: Schema.optionalKey(
+    boundedText(1024).check(Schema.isPattern(/^[A-Za-z0-9_-]+$/)),
+  ),
+});
+export type InspectionRequest = typeof InspectionSchema.Type;
+
+export const InspectionCursorSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  repository: Repository,
+  status: InspectionStatus,
+  after: PositiveInteger,
+  afterId: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
+  through: PositiveInteger,
+}).check(Schema.makeFilter((value) => value.after < value.through));
+
 export interface PublicationIntent {
   id: string;
   findingId: string;

@@ -10,7 +10,7 @@ Operator policy + trusted source snapshot + untrusted proposed findings
               synchronous SQLite BEGIN IMMEDIATE transaction
                  deliveries + findings + pending outbox
                              |
-                     dry-run JSON inspection
+                   compact current-plan JSON
 ```
 
 ## One schema and one execution boundary
@@ -107,15 +107,41 @@ SQLite transactions provide local atomicity and durable deduplication, **not
 exactly-once GitHub publication**. A future publisher still needs explicit write
 authority, fresh-head checks, safe rendering, and uncertain-write reconciliation.
 
+## Separate bounded inspection
+
+The CLI plan command returns only the current operation's compact outcome; it
+never calls the full library snapshot. A committed plan cannot be turned into an
+inspection failure by an unrelated historical record. The explicit inspect
+command uses `inspectLedger` in `src/inspection.ts`, not writable initialization.
+Its scoped read-only connection checks an existing regular ledger's identity,
+schema, and minimum SQLite version without creating or migrating it.
+
+Inspection validates one allowlisted repository, finding lifecycle status, and a
+1–100 item limit before payload access. Repository, status, keyset bounds, and
+limit are SQL parameters. Rows are ordered by the finding's rowid; at most
+`limit + 1` rows are materialized in one read transaction to detect continuation. Only
+the requested page is decoded afterward using the same intrinsic observation
+decoder as planning/lifecycle operations, now in `src/observations.ts`. Current
+admission thresholds and delivery capacity do not gate read access.
+
+The versioned cursor binds repository, status, the last rowid/finding ID, and a
+first-page high-water rowid. The last-row metadata detects ordinary cursor
+misrouting or changed anchors without a new ledger identity table. Cursors are
+not signed or secret and never replace allowlist checks. Every page is its own
+read snapshot: later appends are outside the original high-water bound, while
+lifecycle changes can alter which older rows match subsequent pages. No stable
+cross-page historical snapshot or retention mechanism is promised.
+
 ## Where to change behavior
 
-| Change                                                 | Start here                              | Regression coverage                                |
-| ------------------------------------------------------ | --------------------------------------- | -------------------------------------------------- |
-| Input shape, policy, evidence validation               | `src/contracts.ts`, `src/validation.ts` | `test/reviewer.test.ts`, `test/properties.test.ts` |
-| Planning, replay, lifecycle, observation integrity     | `src/reviewer.ts`                       | `test/reviewer.test.ts`, `test/integrity.test.ts`  |
-| Database ownership, initialization, settings, lifetime | `src/storage.ts`                        | `test/storage.test.ts`                             |
-| CLI arguments, input/output, sanitized failures        | `src/cli.ts`                            | `test/cli.test.ts`                                 |
-| Runtime, checker, linter, test runner                  | Root configs and CI workflow            | `test/runtime.test.ts`, full aggregate             |
+| Change                                                 | Start here                               | Regression coverage                                |
+| ------------------------------------------------------ | ---------------------------------------- | -------------------------------------------------- |
+| Input shape, policy, evidence validation               | `src/contracts.ts`, `src/validation.ts`  | `test/reviewer.test.ts`, `test/properties.test.ts` |
+| Planning, replay, lifecycle, observation integrity     | `src/reviewer.ts`, `src/observations.ts` | `test/reviewer.test.ts`, `test/integrity.test.ts`  |
+| Bounded read-only inspection and cursors               | `src/inspection.ts`, `src/contracts.ts`  | `test/inspection.test.ts`, `test/cli.test.ts`      |
+| Database ownership, initialization, settings, lifetime | `src/storage.ts`                         | `test/storage.test.ts`                             |
+| CLI arguments, input/output, sanitized failures        | `src/cli.ts`                             | `test/cli.test.ts`                                 |
+| Runtime, checker, linter, test runner                  | Root configs and CI workflow             | `test/runtime.test.ts`, full aggregate             |
 
 Reuse `test/helpers.ts` for synthetic fixtures and scoped test databases; the
 [README](../README.md#setup-and-commands) defines test-runner and isolation rules.

@@ -23,7 +23,8 @@ project's own isolated CI tests, never by interpreting a review fixture.
   Additional semantic checks bind policy, targets, paths, and evidence.
 - Explicit case-sensitive repository allowlist; no wildcard or implicit trust.
   Adapters must supply canonical names. Active policy also filters snapshots and
-  gates acknowledgement/closure of stored findings.
+  gates acknowledgement/closure of stored findings. Explicit inspection also
+  requires a single allowed repository and SQL-bound status/page limits.
 - Only read-only / publication-disabled policy. Local ledger writes are explicit
   and separate from external repository permissions.
 - Full lowercase SHA; finding repo, PR, and head must exactly match context.
@@ -42,9 +43,10 @@ project's own isolated CI tests, never by interpreting a review fixture.
   The database connection closes on normal exit and initialization/use failures.
 - CLI input descriptors are checked as regular files without blocking on FIFOs;
   malformed UTF-8 is rejected rather than silently replaced. Output writes are
-  awaited and failures are sanitized. An OUTPUT or late INTERRUPTED result may
-  follow an already committed transaction: retry the identical delivery and
-  inspect its retained pending outbox rather than assuming nothing was saved.
+  awaited and failures are sanitized. A planning OUTPUT or late INTERRUPTED
+  result may follow an already committed transaction: retry the identical
+  delivery and inspect its retained pending outbox rather than assuming nothing
+  was saved. Inspection admits no delivery, including on output failure.
 - Stored observations are checked as a joined finding/outbox unit before use:
   payload identity and target, required outbox presence, lifecycle pairing, and
   acknowledgement reference must agree. Detected corruption fails closed without
@@ -63,12 +65,29 @@ persistent journal settings. Migration metadata and initial schema are created
 atomically. Unknown/newer schemas, foreign files, and unsupported SQLite
 versions fail closed; there is no automatic reset or downgrade.
 
-The connection reads back and requires WAL, FULL synchronous mode, foreign keys,
+The planning connection reads back and requires WAL, FULL synchronous mode, foreign keys,
 and a 5,000 ms busy timeout. This starter conservatively requires SQLite 3.51.3
 or newer, rather than implementing every older backport exception to the
 [SQLite WAL reset fix](https://sqlite.org/wal.html).
 Check the returned actual SQLite version, especially on macOS, which may use
 system SQLite. Only Linux is the current verification target.
+
+Inspection uses a separate read-only connection to an existing regular ledger;
+it does not create a main database or parent directory, migrate schema, change journal settings, or
+write delivery/finding/outbox records. It checks the same owner/schema and minimum
+SQLite version but does not enable or attest writer durability settings; a
+recognized offline DELETE-mode ledger can be inspected without converting it to
+WAL. SQLite may create/use WAL/SHM coordination sidecars on a writable directory
+even for a read-only connection. This is not a promise of zero filesystem
+activity; see [SQLite read-only WAL databases](https://sqlite.org/wal.html#read_only_databases).
+Do not use immutable mode against a live ledger to suppress those sidecars.
+
+Default CLI planning exposes identifiers and current outcomes, not evidence or
+historical payloads. Explicit inspection returns bounded, repository-scoped
+payload pages, which remain sensitive and untrusted. Its cursor is not an access
+token or a historical snapshot: repository authorization is checked on every
+request, and lifecycle state can change between pages. Inspection never repairs
+corruption or removes old records to make room at the admission cap.
 
 Transactions execute entirely synchronously and obtain the write lock before
 reading deduplication state. SQLite serializes local writers; lock contention can
