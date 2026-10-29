@@ -20,13 +20,25 @@ import {
 import type { ContractError } from "./validation.ts";
 
 type ReviewError = ContractError | StoreError;
-interface OutboxRow {
-  id: string;
+interface ObservationRow {
   findingId: string;
-  payload: string;
-  status: "pending" | "acknowledged";
+  repository: string;
+  pullRequest: number;
+  headSha: string;
+  findingStatus: string;
+  intentId: string | null;
+  payload: string | null;
+  intentStatus: string | null;
   externalReference: string | null;
 }
+interface Observation {
+  record: FindingRecord;
+  intent: PublicationIntent;
+}
+const observationSelect =
+  "SELECT f.id AS findingId, f.repository, f.pull_request AS pullRequest, f.head_sha AS headSha, f.status AS findingStatus, " +
+  "o.id AS intentId, o.payload, o.status AS intentStatus, o.external_reference AS externalReference " +
+  "FROM findings f LEFT JOIN outbox o ON o.finding_id = f.id";
 
 export interface Reviewer {
   plan(input: unknown): Effect.Effect<ReviewPlan, ReviewError>;
@@ -61,6 +73,77 @@ function findingId(finding: Finding): string {
   ]);
 }
 
+function integrity(condition: unknown): asserts condition {
+  if (!condition)
+    throw new StoreError({
+      code: "STORAGE_INTEGRITY",
+      message: "Stored observation records are missing or inconsistent",
+    });
+}
+
+function isReference(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
+  );
+}
+
+function decodeObservation(row: ObservationRow): Observation {
+  integrity(row.intentId !== null && row.payload !== null);
+  let finding: Finding;
+  try {
+    finding = Schema.decodeUnknownSync(FindingSchema, {
+      onExcessProperty: "error",
+    })(JSON.parse(row.payload));
+  } catch {
+    throw new StoreError({
+      code: "STORAGE_INTEGRITY",
+      message: "Stored observation payload does not satisfy its contract",
+    });
+  }
+  integrity(
+    findingId(finding) === row.findingId &&
+      hash(["review-comment-v1", row.findingId]) === row.intentId &&
+      finding.repository === row.repository &&
+      finding.pullRequest === row.pullRequest &&
+      finding.headSha === row.headSha,
+  );
+  const pending =
+    row.findingStatus === "proposed" &&
+    row.intentStatus === "pending" &&
+    row.externalReference === null;
+  const acknowledged =
+    (row.findingStatus === "published" || row.findingStatus === "closed") &&
+    row.intentStatus === "acknowledged" &&
+    isReference(row.externalReference);
+  integrity(pending || acknowledged);
+  const status: FindingRecord["status"] = pending
+    ? "proposed"
+    : row.findingStatus === "closed"
+      ? "closed"
+      : "published";
+  return {
+    record: {
+      id: row.findingId,
+      repository: finding.repository,
+      pullRequest: finding.pullRequest,
+      firstObservedHeadSha: finding.headSha,
+      status,
+    },
+    intent: {
+      id: row.intentId,
+      findingId: row.findingId,
+      kind: "propose-review-comment",
+      dryRun: true,
+      status: pending ? "pending" : "acknowledged",
+      finding,
+      ...(row.externalReference === null
+        ? {}
+        : { externalReference: row.externalReference }),
+    },
+  };
+}
+
 function makeReviewer(
   policy: Policy,
   db: Database,
@@ -70,34 +153,31 @@ function makeReviewer(
   const repositoryPlaceholders = policy.allowedRepositories
     .map(() => "?")
     .join(", ");
-  function isAllowed(repository: string): boolean {
-    return policy.allowedRepositories.includes(repository);
+  function allowed(repository: string): void {
+    requireCondition(
+      policy.allowedRepositories.includes(repository),
+      "NOT_ALLOWED",
+      "repository is not explicitly allowed by the operator policy",
+    );
   }
-
-  function intent(row: OutboxRow): PublicationIntent {
-    const finding = Schema.decodeUnknownSync(FindingSchema, {
-      onExcessProperty: "error",
-    })(JSON.parse(row.payload));
-    if (
-      findingId(finding) !== row.findingId ||
-      hash(["review-comment-v1", row.findingId]) !== row.id
-    ) {
-      throw new StoreError({
-        code: "STORAGE_INTEGRITY",
-        message: "Stored observation identity does not match its payload",
-      });
-    }
-    return {
-      id: row.id,
-      findingId: row.findingId,
-      kind: "propose-review-comment",
-      dryRun: true,
-      status: row.status,
-      finding,
-      ...(row.externalReference === null
-        ? {}
-        : { externalReference: row.externalReference }),
-    };
+  function byFinding(
+    id: string,
+    expectedRepository?: string,
+  ): Observation | undefined {
+    const metadata = db
+      .query<{ repository: string }, [string]>(
+        "SELECT repository FROM findings WHERE id = ?",
+      )
+      .get(id);
+    if (!metadata) return undefined;
+    if (expectedRepository !== undefined)
+      integrity(metadata.repository === expectedRepository);
+    allowed(metadata.repository);
+    const row = db
+      .query<ObservationRow, [string]>(observationSelect + " WHERE f.id = ?")
+      .get(id);
+    integrity(row);
+    return decodeObservation(row);
   }
 
   return {
@@ -110,8 +190,8 @@ function makeReviewer(
               .transaction((): ReviewPlan => {
                 const digest = hash(request);
                 const previous = db
-                  .query<{ digest: string }, [string]>(
-                    "SELECT digest FROM deliveries WHERE id = ?",
+                  .query<{ digest: string; repository: string }, [string]>(
+                    "SELECT digest, repository FROM deliveries WHERE id = ?",
                   )
                   .get(request.deliveryId);
                 if (previous) {
@@ -120,6 +200,11 @@ function makeReviewer(
                     "DELIVERY_CONFLICT",
                     "delivery ID was already used for a different request",
                   );
+                  integrity(previous.repository === request.context.repository);
+                  for (const finding of request.findings)
+                    integrity(
+                      byFinding(findingId(finding), finding.repository),
+                    );
                   return {
                     dryRun: true,
                     deliveryStatus: "duplicate",
@@ -133,32 +218,32 @@ function makeReviewer(
                       "SELECT count(*) AS count FROM deliveries",
                     )
                     .get()?.count ?? 0;
-                const findings =
+                let findings =
                   db
                     .query<{ count: number }, []>(
                       "SELECT count(*) AS count FROM findings",
                     )
                     .get()?.count ?? 0;
                 requireCondition(
-                  deliveries < 10_000 &&
-                    findings + request.findings.length <= 10_000,
+                  deliveries < 10_000,
                   "LEDGER_FULL",
-                  "Ledger capacity reached; archive with an operator-reviewed retention policy",
+                  "Ledger delivery capacity reached; archive with an operator-reviewed retention policy",
                 );
                 const intents: PublicationIntent[] = [];
                 const suppressedFindingIds: string[] = [];
                 for (const finding of request.findings) {
                   const id = findingId(finding);
-                  if (
-                    db
-                      .query<{ id: string }, [string]>(
-                        "SELECT id FROM findings WHERE id = ?",
-                      )
-                      .get(id)
-                  ) {
+                  if (byFinding(id, finding.repository)) {
                     suppressedFindingIds.push(id);
                     continue;
                   }
+                  // Only newly inserted unique observations consume finding capacity.
+                  // Any later overflow rolls back the entire batch, including prior inserts.
+                  requireCondition(
+                    findings < 10_000,
+                    "LEDGER_FULL",
+                    "Ledger finding capacity reached; archive with an operator-reviewed retention policy",
+                  );
                   const proposed: PublicationIntent = {
                     id: hash(["review-comment-v1", id]),
                     findingId: id,
@@ -178,6 +263,7 @@ function makeReviewer(
                   db.query(
                     "INSERT INTO outbox (id, finding_id, payload, status) VALUES (?, ?, ?, 'pending')",
                   ).run(proposed.id, id, JSON.stringify(finding));
+                  findings += 1;
                   intents.push(proposed);
                 }
                 db.query(
@@ -199,38 +285,33 @@ function makeReviewer(
       return storeOperation(() =>
         db
           .transaction(() => {
-            const row = db
-              .query<
-                {
-                  findingId: string;
-                  status: string;
-                  externalReference: string | null;
-                  repository: string;
-                },
-                [string]
-              >(
-                "SELECT o.finding_id AS findingId, o.status, o.external_reference AS externalReference, f.repository FROM outbox o JOIN findings f ON f.id = o.finding_id WHERE o.id = ?",
+            const metadata = db
+              .query<{ repository: string }, [string]>(
+                "SELECT f.repository FROM findings f JOIN outbox o ON o.finding_id = f.id WHERE o.id = ?",
               )
               .get(intentId);
             requireCondition(
-              row,
+              metadata,
               "UNKNOWN_INTENT",
               "publication acknowledgement requires a known intent",
             );
+            allowed(metadata.repository);
+            const row = db
+              .query<ObservationRow, [string]>(
+                observationSelect + " WHERE o.id = ?",
+              )
+              .get(intentId);
+            integrity(row);
+            const observation = decodeObservation(row);
+            allowed(observation.record.repository);
             requireCondition(
-              isAllowed(row.repository),
-              "NOT_ALLOWED",
-              "repository is not explicitly allowed by the operator policy",
-            );
-            requireCondition(
-              typeof externalReference === "string" &&
-                /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(externalReference),
+              isReference(externalReference),
               "REFERENCE",
               "externalReference must be a bounded identifier",
             );
-            if (row.status === "acknowledged") {
+            if (observation.intent.status === "acknowledged") {
               requireCondition(
-                row.externalReference === externalReference,
+                observation.intent.externalReference === externalReference,
                 "ACK_CONFLICT",
                 "intent was already acknowledged with a different reference",
               );
@@ -241,7 +322,7 @@ function makeReviewer(
             ).run(externalReference, intentId);
             db.query(
               "UPDATE findings SET status = 'published' WHERE id = ?",
-            ).run(row.findingId);
+            ).run(observation.record.id);
           })
           .immediate(),
       );
@@ -250,20 +331,17 @@ function makeReviewer(
       return storeOperation(() =>
         db
           .transaction(() => {
-            const record = db
-              .query<{ status: string; repository: string }, [string]>(
-                "SELECT status, repository FROM findings WHERE id = ?",
-              )
-              .get(id);
+            const observation = byFinding(id);
             requireCondition(
-              record && record.status !== "proposed",
+              observation,
               "INVALID_TRANSITION",
               "only an acknowledged finding can be marked closed",
             );
+            allowed(observation.record.repository);
             requireCondition(
-              isAllowed(record.repository),
-              "NOT_ALLOWED",
-              "repository is not explicitly allowed by the operator policy",
+              observation.record.status !== "proposed",
+              "INVALID_TRANSITION",
+              "only an acknowledged finding can be marked closed",
             );
             db.query("UPDATE findings SET status = 'closed' WHERE id = ?").run(
               id,
@@ -276,21 +354,15 @@ function makeReviewer(
       return storeOperation(() =>
         db
           .transaction((): Snapshot => {
-            const findings = db
-              .query<FindingRecord, string[]>(
-                "SELECT id, repository, pull_request AS pullRequest, head_sha AS firstObservedHeadSha, status FROM findings WHERE repository IN (" +
+            const observations = db
+              .query<ObservationRow, string[]>(
+                observationSelect +
+                  " WHERE f.repository IN (" +
                   repositoryPlaceholders +
-                  ") ORDER BY rowid",
-              )
-              .all(...policy.allowedRepositories);
-            const outbox = db
-              .query<OutboxRow, string[]>(
-                "SELECT o.id, o.finding_id AS findingId, o.payload, o.status, o.external_reference AS externalReference FROM outbox o JOIN findings f ON f.id = o.finding_id WHERE f.repository IN (" +
-                  repositoryPlaceholders +
-                  ") ORDER BY o.rowid",
+                  ") ORDER BY f.rowid",
               )
               .all(...policy.allowedRepositories)
-              .map(intent);
+              .map(decodeObservation);
             const deliveries = db
               .query<{ id: string; digest: string }, string[]>(
                 "SELECT id, digest FROM deliveries WHERE repository IN (" +
@@ -298,7 +370,12 @@ function makeReviewer(
                   ") ORDER BY rowid",
               )
               .all(...policy.allowedRepositories);
-            return { schemaVersion: 1, deliveries, findings, outbox };
+            return {
+              schemaVersion: 1,
+              deliveries,
+              findings: observations.map((item) => item.record),
+              outbox: observations.map((item) => item.intent),
+            };
           })
           .deferred(),
       );

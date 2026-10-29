@@ -40,6 +40,16 @@ project's own isolated CI tests, never by interpreting a review fixture.
 - Source/policy input, returned plans, and snapshots cannot mutate accepted state.
 - Sanitized CLI failures contain neither raw SQL errors nor source bindings.
   The database connection closes on normal exit and initialization/use failures.
+- CLI input descriptors are checked as regular files without blocking on FIFOs;
+  malformed UTF-8 is rejected rather than silently replaced. Output writes are
+  awaited and failures are sanitized. An OUTPUT or late INTERRUPTED result may
+  follow an already committed transaction: retry the identical delivery and
+  inspect its retained pending outbox rather than assuming nothing was saved.
+- Stored observations are checked as a joined finding/outbox unit before use:
+  payload identity and target, required outbox presence, lifecycle pairing, and
+  acknowledgement reference must agree. Detected corruption fails closed without
+  automatic repair. Current confidence thresholds govern admission, not the
+  validity of previously accepted observations.
 
 ## Local database operations
 

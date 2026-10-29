@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -106,3 +114,83 @@ test("CLI sanitizes database failures and never emits SQL or local paths", () =>
   assert.ok(!result.stderr.includes(directory));
   assert.ok(!result.stderr.includes("private"));
 });
+
+test.skipIf(process.platform !== "linux")(
+  "CLI rejects a FIFO before reading or creating a database",
+  () => {
+    const directory = temporaryDirectory();
+    const fifo = join(directory, "input.fifo");
+    const database = join(directory, "ledger.sqlite");
+    assert.equal(spawnSync("mkfifo", [fifo]).status, 0);
+    const args = standardArgs(database);
+    args[3] = fifo;
+    const result = spawnSync(process.execPath, ["src/cli.ts", ...args], {
+      cwd: root,
+      encoding: "utf8",
+      timeout: 3000,
+      killSignal: "SIGKILL",
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /"error":"INPUT_SIZE"/);
+    assert.equal(existsSync(database), false);
+  },
+);
+
+test("CLI rejects malformed UTF-8 instead of silently changing JSON text", () => {
+  const directory = temporaryDirectory();
+  const input = join(directory, "invalid-utf8.json");
+  const database = join(directory, "ledger.sqlite");
+  const fixture = readFileSync(join(root, "examples/review.json"));
+  const title = Buffer.from("Empty input produces NaN");
+  const at = fixture.indexOf(title);
+  assert.ok(at >= 0);
+  writeFileSync(
+    input,
+    Buffer.concat([
+      fixture.subarray(0, at),
+      Buffer.from([0xff]),
+      fixture.subarray(at + 1),
+    ]),
+  );
+  const args = standardArgs(database);
+  args[3] = input;
+  const result = cli(args);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /"error":"JSON"/);
+  assert.equal(existsSync(database), false);
+});
+
+test.skipIf(process.platform !== "linux")(
+  "CLI awaits stdout failures and a retry preserves the committed delivery",
+  () => {
+    const database = join(temporaryDirectory(), "ledger.sqlite");
+    const output = openSync("/dev/full", "w");
+    try {
+      const result = spawnSync(
+        process.execPath,
+        ["src/cli.ts", ...standardArgs(database)],
+        {
+          cwd: root,
+          encoding: "utf8",
+          timeout: 5000,
+          stdio: ["ignore", output, "pipe"],
+        },
+      );
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 1);
+      assert.deepEqual(JSON.parse(result.stderr), {
+        error: "OUTPUT",
+        message:
+          "Could not write review output; the delivery may already be committed",
+      });
+    } finally {
+      closeSync(output);
+    }
+    const replay = cli(standardArgs(database));
+    assert.equal(replay.status, 0, replay.stderr);
+    const result = JSON.parse(replay.stdout) as Output;
+    assert.equal(result.plan.deliveryStatus, "duplicate");
+    assert.equal(result.snapshot.outbox.length, 1);
+  },
+);

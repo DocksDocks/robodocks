@@ -36,3 +36,9 @@ must report the actual engine rather than infer it from the Bun version.
 
 Local success is not hosted CI success. Inspect checks for the exact published
 commit before treating the update as hosted-validated or ready to merge.
+
+Verification limits: automated interruption checks cover Effect scope cleanup.
+The queued-signal checkpoint after a blocking native SQLite call is code-reviewed,
+not empirically reverified in a blocking-call signal scenario. Synchronous native
+calls cannot be preempted, and an interrupted CLI may already have committed its
+delivery. No power-loss/crash-recovery stress result is claimed by these checks.

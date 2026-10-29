@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { Database } from "bun:sqlite";
 import { afterEach, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import { withReviewer } from "../src/reviewer.ts";
 import type { Reviewer } from "../src/reviewer.ts";
 import { ContractError } from "../src/validation.ts";
@@ -16,6 +16,46 @@ import {
 } from "./helpers.ts";
 
 afterEach(cleanupDatabases);
+
+test("a foreign sqlite-prefixed name is not confused with SQLite's reserved literal prefix", async () => {
+  const { policy } = fixtures();
+  const filename = database();
+  const foreign = new Database(filename, { strict: true });
+  foreign.run(
+    "CREATE TABLE sqliteXforeign (secret TEXT); INSERT INTO sqliteXforeign VALUES ('untouched')",
+  );
+  foreign.close(true);
+  await Effect.runPromise(
+    expectCode(
+      withReviewer(policy, filename, (reviewer) => reviewer.snapshot()),
+      "DATABASE_OWNER",
+    ),
+  );
+  const inspected = new Database(filename, { strict: true });
+  try {
+    assert.deepEqual(inspected.query("PRAGMA application_id").get(), {
+      application_id: 0,
+    });
+    assert.deepEqual(inspected.query("PRAGMA user_version").get(), {
+      user_version: 0,
+    });
+    assert.deepEqual(inspected.query("PRAGMA journal_mode").get(), {
+      journal_mode: "delete",
+    });
+    assert.deepEqual(
+      inspected.query("SELECT secret FROM sqliteXforeign").all(),
+      [{ secret: "untouched" }],
+    );
+    assert.deepEqual(
+      inspected
+        .query("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all(),
+      [{ name: "sqliteXforeign" }],
+    );
+  } finally {
+    inspected.close(true);
+  }
+});
 
 test("exact deliveries and observations remain deduplicated after closing and reopening", async () => {
   const { policy, request } = fixtures();
@@ -426,7 +466,7 @@ test("persisted payloads are decoded with the same intrinsic scalar constraints"
   }
   await runReviewer(
     policy,
-    (reviewer) => expectCode(reviewer.snapshot(), "STORAGE"),
+    (reviewer) => expectCode(reviewer.snapshot(), "STORAGE_INTEGRITY"),
     filename,
   );
   const inspected = new Database(filename, { strict: true });
@@ -437,4 +477,21 @@ test("persisted payloads are decoded with the same intrinsic scalar constraints"
   } finally {
     inspected.close(true);
   }
+});
+
+test("Effect interruption closes the scoped connection before returning", async () => {
+  const { policy } = fixtures();
+  const controller = new AbortController();
+  let captured: Reviewer | undefined;
+  const result = await Effect.runPromiseExit(
+    withReviewer(policy, database(), (reviewer) => {
+      captured = reviewer;
+      queueMicrotask(() => controller.abort());
+      return Effect.never;
+    }),
+    { signal: controller.signal },
+  );
+  assert.equal(Exit.hasInterrupts(result), true);
+  assert.ok(captured);
+  await Effect.runPromise(expectCode(captured.snapshot(), "STORAGE"));
 });

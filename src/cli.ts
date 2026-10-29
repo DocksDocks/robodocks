@@ -1,4 +1,6 @@
+import { constants } from "node:fs";
 import { open } from "node:fs/promises";
+import type { Writable } from "node:stream";
 import { Effect, Exit } from "effect";
 import { withReviewer } from "./reviewer.ts";
 import { ContractError } from "./validation.ts";
@@ -6,10 +8,73 @@ import { ContractError } from "./validation.ts";
 const usage =
   "Usage: bun src/cli.ts --policy <operator-policy.json> --input <review-request.json> --database <local-ledger.sqlite>";
 
+function writeText(
+  stream: Writable,
+  text: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const removeAbort = () => signal?.removeEventListener("abort", onAbort);
+    const onError = (error: Error) => {
+      removeAbort();
+      reject(error);
+    };
+    const onAbort = () => {
+      stream.destroy();
+      removeAbort();
+      reject(new Error("Output interrupted"));
+    };
+    // A failed write callback can precede its error event. Keep this once-listener
+    // in that case so the later event cannot become an uncaught exception.
+    stream.once("error", onError);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    try {
+      stream.write(text, (error?: Error | null) => {
+        removeAbort();
+        if (error) {
+          reject(error);
+          return;
+        }
+        stream.removeListener("error", onError);
+        resolve();
+      });
+    } catch (error) {
+      removeAbort();
+      reject(error);
+    }
+  });
+}
+
+function output(text: string) {
+  return Effect.tryPromise({
+    try: (signal) => writeText(process.stdout, text, signal),
+    catch: () =>
+      new ContractError(
+        "OUTPUT",
+        "Could not write review output; the delivery may already be committed",
+      ),
+  });
+}
+
+async function reportFailure(error: string, message: string): Promise<void> {
+  // If stderr is also unavailable, retain the exit status without a raw stack.
+  await writeText(
+    process.stderr,
+    JSON.stringify({ error, message }) + "\n",
+  ).catch(() => undefined);
+}
+
 function readJson(path: string): Effect.Effect<unknown, ContractError> {
   return Effect.tryPromise({
     try: async () => {
-      const handle = await open(path, "r");
+      const handle = await open(
+        path,
+        constants.O_RDONLY | constants.O_NONBLOCK,
+      );
       try {
         const info = await handle.stat();
         if (!info.isFile() || info.size > 2 * 1024 * 1024)
@@ -33,7 +98,9 @@ function readJson(path: string): Effect.Effect<unknown, ContractError> {
           throw new ContractError("INPUT_SIZE", "input exceeds two MiB");
         try {
           const value: unknown = JSON.parse(
-            buffer.subarray(0, length).toString("utf8"),
+            new TextDecoder("utf-8", { fatal: true }).decode(
+              buffer.subarray(0, length),
+            ),
           );
           return value;
         } catch {
@@ -56,7 +123,7 @@ function readJson(path: string): Effect.Effect<unknown, ContractError> {
 const main = Effect.gen(function* () {
   const args = process.argv.slice(2);
   if (args.length === 1 && args[0] === "--help") {
-    process.stdout.write(usage + "\n");
+    yield* output(usage + "\n");
     return;
   }
   if (
@@ -84,7 +151,10 @@ const main = Effect.gen(function* () {
       return { plan, snapshot, storage: reviewer.storage };
     }),
   );
-  process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  // Let signals queued during a synchronous native call reach AbortController.
+  // An already committed transaction is not rolled back by late interruption.
+  yield* Effect.sleep("1 millis");
+  yield* output(JSON.stringify(result, null, 2) + "\n");
 });
 
 const controller = new AbortController();
@@ -102,35 +172,29 @@ process.once("SIGTERM", onTerminate);
 try {
   const exit = await Effect.runPromiseExit(
     main.pipe(
-      Effect.match({
-        onSuccess: () => undefined,
-        onFailure: (error) => {
-          process.stderr.write(
-            JSON.stringify({ error: error.code, message: error.message }) +
-              "\n",
-          );
-          process.exitCode = 1;
-        },
+      Effect.matchEffect({
+        onSuccess: () => Effect.void,
+        onFailure: (error) =>
+          Effect.gen(function* () {
+            yield* Effect.sleep("1 millis");
+            process.exitCode = 1;
+            yield* Effect.promise(() =>
+              reportFailure(error.code, error.message),
+            );
+          }),
       }),
     ),
     { signal: controller.signal },
   );
   if (Exit.hasInterrupts(exit)) {
-    process.stderr.write(
-      JSON.stringify({
-        error: "INTERRUPTED",
-        message: "Reviewer interrupted",
-      }) + "\n",
-    );
     process.exitCode = interruptionCode;
-  } else if (Exit.isFailure(exit)) {
-    process.stderr.write(
-      JSON.stringify({
-        error: "INTERNAL",
-        message: "Unexpected reviewer failure",
-      }) + "\n",
+    await reportFailure(
+      "INTERRUPTED",
+      "Reviewer interrupted; an in-flight delivery may already be committed",
     );
+  } else if (Exit.isFailure(exit)) {
     process.exitCode = 1;
+    await reportFailure("INTERNAL", "Unexpected reviewer failure");
   }
 } finally {
   process.removeListener("SIGINT", onInterrupt);

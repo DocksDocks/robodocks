@@ -69,7 +69,8 @@ is canary-only in this release, so stable Oxlint is used instead.
 
 Strict checking includes tests, dependency declarations, unchecked indexed
 access, exact optional properties, unused code, and no implicit overrides.
-TypeScript 7.0.2 matches this Bun release's checker and is pinned for editors.
+TypeScript 7.0.2 is pinned as a compatible editor baseline; Bun performs the
+actual strict-check gate and may incorporate newer checker behavior.
 There is no separate transpilation or build step.
 
 ## Library boundary

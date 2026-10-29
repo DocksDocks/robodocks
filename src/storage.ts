@@ -59,7 +59,7 @@ function ownership(db: Database): number {
     .get()?.user_version;
   const tables = db
     .query<{ name: string }, []>(
-      "SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+      "SELECT name FROM sqlite_master WHERE name NOT GLOB 'sqlite_*'",
     )
     .all();
   ensure(
