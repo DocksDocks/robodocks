@@ -4,10 +4,25 @@
   "private": true,
   "description": "A repository-agnostic, dry-run foundation for a reviewer-first automation tool.",
   "type": "module",
-  "engines": { "node": ">=26.13.0 <27" },
+  "packageManager": "bun@1.4.4",
+  "engines": {
+    "bun": ">=1.4.4 <1.5"
+  },
+  "dependencies": {
+    "effect": "4.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.4",
+    "oxlint": "1.90.0",
+    "oxlint-tsgolint": "7.0.2005",
+    "typescript": "7.0.2"
+  },
   "scripts": {
-    "test": "node --test test/*.test.ts",
-    "check": "node --check src/contracts.ts && node --check src/validation.ts && node --check src/reviewer.ts && node --check src/cli.ts && npm test",
-    "demo": "node src/cli.ts --policy examples/policy.json --input examples/review.json"
+    "test": "bun test",
+    "typecheck": "bun check --no-script",
+    "format": "bun fmt --no-script",
+    "lint": "bun --bun run oxlint --type-aware --max-warnings 0 --report-unused-disable-directives src test",
+    "check": "bun check --no-script && bun run lint && bun fmt --no-script --check && bun test",
+    "demo": "bun src/cli.ts --policy examples/policy.json --input examples/review.json --database local/demo.sqlite"
   }
 }

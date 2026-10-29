@@ -1,44 +1,98 @@
-/** Operator-owned configuration. Never load this from a pull request. */
-export interface Policy {
-  schemaVersion: 1;
-  mode: "read-only";
-  publication: "disabled";
-  allowedRepositories: string[];
-  minimumConfidence: number;
-  maxFindings: number;
-}
+import { Schema } from "effect";
 
-/** An adapter must obtain this snapshot independently of candidate findings. */
-export interface ReviewContext {
-  repository: string;
-  pullRequest: number;
-  headSha: string;
-  currentHeadSha: string;
-  files: { path: string; content: string }[];
-}
+// Reusable intrinsic constraints also protect payloads read back from SQLite.
+const boundedText = (maximum: number) =>
+  Schema.String.check(
+    Schema.isBetweenLength(1, maximum),
+    Schema.isPattern(/\S/),
+  );
+const PositiveInteger = Schema.Int.check(
+  Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
+);
+const Confidence = Schema.Number.check(
+  Schema.isFinite(),
+  Schema.isBetween({ minimum: 0, maximum: 1 }),
+);
+const Repository = boundedText(180).check(
+  Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]+$/),
+  Schema.makeFilter(
+    (value) => ![".", ".."].includes(value.split("/")[1] ?? ""),
+  ),
+);
+const HeadSha = Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/));
+const RelativePath = boundedText(512).check(
+  Schema.makeFilter(
+    (value) =>
+      !Array.from(value).some(
+        (character) =>
+          character.charCodeAt(0) <= 31 ||
+          character.charCodeAt(0) === 127 ||
+          character === "\\" ||
+          character === ":",
+      ) &&
+      value
+        .split("/")
+        .every((part) => part !== "" && part !== "." && part !== ".."),
+  ),
+);
 
-/** Untrusted, proposed findings require runtime validation. */
-export interface Finding {
-  ruleId: string;
-  repository: string;
-  pullRequest: number;
-  headSha: string;
-  path: string;
-  startLine: number;
-  endLine: number;
-  title: string;
-  severity: "low" | "medium" | "high";
-  evidence: string;
-  impact: string;
-  suggestion: string;
-  confidence: number;
-}
+// These are the only input schemas. Types are derived, not duplicated.
+export const PolicySchema = Schema.Struct({
+  schemaVersion: Schema.Literal(1),
+  mode: Schema.Literal("read-only"),
+  publication: Schema.Literal("disabled"),
+  allowedRepositories: Schema.Array(Repository).check(
+    Schema.isBetweenLength(1, 100),
+  ),
+  minimumConfidence: Confidence,
+  maxFindings: PositiveInteger.check(Schema.isLessThanOrEqualTo(100)),
+});
+export type Policy = typeof PolicySchema.Type;
 
-export interface ReviewRequest {
-  deliveryId: string;
-  context: ReviewContext;
-  findings: Finding[];
-}
+export const ContextSchema = Schema.Struct({
+  repository: Repository,
+  pullRequest: PositiveInteger,
+  headSha: HeadSha,
+  currentHeadSha: HeadSha,
+  files: Schema.Array(
+    Schema.Struct({
+      path: RelativePath,
+      content: Schema.String.check(Schema.isMaxLength(128 * 1024)),
+    }),
+  ).check(Schema.isMaxLength(1000)),
+});
+export type ReviewContext = typeof ContextSchema.Type;
+
+export const FindingSchema = Schema.Struct({
+  ruleId: boundedText(100).check(Schema.isPattern(/^[a-z0-9][a-z0-9._-]*$/)),
+  repository: Repository,
+  pullRequest: PositiveInteger,
+  headSha: HeadSha,
+  path: RelativePath,
+  startLine: PositiveInteger,
+  endLine: PositiveInteger,
+  title: boundedText(200),
+  severity: Schema.Literals(["low", "medium", "high"]),
+  evidence: boundedText(8192),
+  impact: boundedText(4096),
+  suggestion: boundedText(4096),
+  confidence: Confidence,
+}).check(
+  Schema.makeFilter(
+    (value) =>
+      value.startLine <= value.endLine && value.endLine - value.startLine < 100,
+  ),
+);
+export type Finding = typeof FindingSchema.Type;
+
+export const RequestSchema = Schema.Struct({
+  deliveryId: boundedText(128).check(
+    Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+  ),
+  context: ContextSchema,
+  findings: Schema.Array(FindingSchema).check(Schema.isMaxLength(100)),
+});
+export type ReviewRequest = typeof RequestSchema.Type;
 
 export interface PublicationIntent {
   id: string;

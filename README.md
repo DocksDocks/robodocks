@@ -1,132 +1,148 @@
 # Robodocks
 
 A generic, open-source foundation for repository automation: **reviewer first,
-executor later**. The intended integration target is any explicitly authorized
-GitHub repository, without project-specific business rules.
+executor later**. The integration target is any explicitly authorized GitHub
+repository, without project-specific business rules.
 
 ## Current status: a runnable dry-run foundation
 
 This starter **does not discover bugs or perform AI code reviews yet**. It accepts
-proposed findings, checks their structure and cited source evidence, and produces
-structured publication intents for inspection. It makes no network requests and
-cannot publish comments, open issues, modify source, merge, or deploy.
+proposed findings, validates their structure and cited evidence, and reserves
+structured publication intents in a local SQLite ledger. It cannot publish
+comments, open issues, modify reviewed source, merge, or deploy.
 
-- Operator-owned repository allowlist; read-only and publication-disabled policy.
-- Exact repository, pull request, commit SHA, file path, line, and evidence checks.
+- Operator-owned repository allowlist and publication-disabled policy.
+- Exact repository, pull request, SHA, path, line, and evidence checks.
 - Required impact, suggestion, severity, and confidence fields.
-- Stale-head rejection before any ledger mutation.
-- In-memory delivery deduplication, finding suppression, and pending intent state.
-- Explicit simulated acknowledgement/closure transitions; closure never creates
-  another issue or implies that a problem was fixed.
-- Synthetic examples and tests; no credentials or project-specific context.
+- Stale-head rejection before finding state changes.
+- Durable delivery/finding deduplication and transactional pending intent state.
+- Typed Effect errors, scoped resources, and a single Effect Schema contract.
+- Explicit acknowledgement/closure observations; no automatic follow-up issues.
+- Synthetic examples and tests, without credentials or private project context.
 
-These checks establish **structural validity**, not factual correctness of the
-finding, calibration of its confidence, or completeness of a review.
+These checks establish **structural validity**, not factual correctness,
+confidence calibration, or review completeness. "Read-only" applies to reviewed
+repositories and external services; the selected local ledger is written.
 
-## Run locally
+## Setup and commands
 
-Use Node.js **26.13.0 LTS (Lithium)**, pinned in `.nvmrc` and used by CI. The
-supported runtime range is `>=26.13.0 <27`; earlier Node 26 releases predate its
-LTS transition. There are no dependencies to install and no build step.
+Use **Bun 1.4.4**, pinned in .bun-version. Bun supplies the runtime, package
+manager, formatter, test runner, and strict TypeScript checker. There is no Node
+runtime or npm installation step.
 
-```sh
-npm run check
-npm run demo
-# Or emit only JSON, without npm's command banner:
-node src/cli.ts --policy examples/policy.json --input examples/review.json
-```
+Set DO_NOT_TRACK=1 in your environment to disable Bun crash-report uploads and
+telemetry. CI sets it explicitly. No application credentials are needed.
 
-If you use nvm, run `nvm install` and `nvm use` in the repository first. The test
-suite checks that the running Node version is an LTS release meeting the reviewed
-`.nvmrc` baseline within the same major.
+    bun install --frozen-lockfile --ignore-scripts
+    bun run check
+    bun run demo
 
-The sample has a fictional repository and a hand-authored empty-input finding.
-The CLI returns a plan and ledger snapshot on stdout; validation errors are JSON
-on stderr with a nonzero exit code. It reads only the two explicitly supplied
-JSON files. File paths inside the review request are identifiers, not local files
-to open. It does not load policy, scripts, or instructions from a repository.
+The demo explicitly uses local/demo.sqlite, creating its parent directory when
+needed. Repeating it reopens the same ledger: no duplicate intent is created and
+the original pending intent remains in the snapshot. For another experiment,
+choose a different database file instead of deleting an existing working ledger.
 
-Each CLI invocation starts with an empty ledger. Deduplication works only within
-one `Reviewer` instance; snapshots are inspection output, not a supported durable
-database or restart format. The in-memory ledger is capped at 10,000 deliveries
-and findings and is not a concurrent or production worker.
+To emit only JSON without a package-script banner:
 
-## Library example
+    bun src/cli.ts --policy examples/policy.json --input examples/review.json --database local/demo.sqlite
 
-```ts
-import { Reviewer } from "./src/reviewer.ts";
+The CLI reads the two explicitly supplied JSON inputs and writes only its
+explicitly selected local SQLite ledger (including SQLite WAL/SHM sidecars).
+Repository paths inside an input are identifiers, not local files to execute or
+open. Policy is never loaded from pull-request content. Errors are JSON on stderr
+with a nonzero exit code; output may contain source evidence, so keep it private.
 
-const reviewer = new Reviewer(operatorPolicy);
-const first = reviewer.plan(reviewRequest);
-const replay = reviewer.plan(reviewRequest); // duplicate; no new intents
-const snapshot = reviewer.snapshot();       // detached inspection copy
-```
+Development commands:
 
-See `examples/policy.json` for configuration and `examples/review.json` for the
-request contract. Policy must come from the operator, outside pull-request
-content. A future source adapter must obtain the current head and source snapshot
-independently; the demo merely supplies synthetic values for those inputs.
+| Command                     | Purpose                                              |
+| --------------------------- | ---------------------------------------------------- |
+| bun check --no-script       | Strict, no-emit TypeScript checking                  |
+| bun fmt --no-script         | Format supported project files                       |
+| bun fmt --no-script --check | Require formatting without rewriting files           |
+| bun run lint                | Stable Oxlint with type-aware rules, zero warnings   |
+| bun test                    | Contract, CLI, resource, and SQLite regression tests |
+| bun run check               | Type checking, lint, formatting check, and tests     |
 
-## Architecture
+The --no-script switches select Bun's built-in commands rather than similarly
+named package scripts. Bun 1.4.4 does **not** expose native bun lint; that command
+is canary-only in this release, so stable Oxlint is used instead.
 
-```text
-Operator policy ───────────────┐
-Trusted source snapshot ──────┼─> validation ─> in-memory ledger ─> dry-run intents
-Untrusted proposed findings ──┘                                    (JSON only)
-```
+Strict checking includes tests, dependency declarations, unchecked indexed
+access, exact optional properties, unused code, and no implicit overrides.
+TypeScript 7.0.2 matches this Bun release's checker and is pinned for editors.
+There is no separate transpilation or build step.
 
-- `src/contracts.ts`: explicit data contracts.
-- `src/validation.ts`: bounded inputs, allowlist, target/evidence validation.
-- `src/reviewer.ts`: deterministic planning, replay protection, lifecycle state.
-- `src/cli.ts`: bounded JSON-file input and inspectable JSON output.
+## Library boundary
 
-TypeScript's erasable syntax runs directly in Node. `npm run check` performs
-syntax checks and runtime tests; it **does not perform static type checking**.
-Node's built-in [TypeScript support](https://nodejs.org/docs/latest-v26.x/api/typescript.html)
-strips types without checking them. A pinned TypeScript compiler and Node type
-definitions can be added with the first tooling iteration.
+Use withReviewer from src/reviewer.ts. Its callback receives an Effect-based
+reviewer; the database connection closes when the scoped program finishes.
+
+    import { Effect } from "effect";
+    import { withReviewer } from "./src/reviewer.ts";
+
+    const program = withReviewer(operatorPolicy, "local/review.sqlite", reviewer =>
+      Effect.gen(function* () {
+        const first = yield* reviewer.plan(reviewRequest);
+        const replay = yield* reviewer.plan(reviewRequest);
+        return { first, replay, snapshot: yield* reviewer.snapshot() };
+      })
+    );
+    const result = await Effect.runPromise(program);
+
+Inputs are illustrated in examples/policy.json and examples/review.json. A future
+source adapter must authenticate the repository and independently fetch the
+current head and SHA-bound source snapshot. The demo uses synthetic observations.
 
 ## Version selection policy
 
-Prefer the latest supported LTS release when a runtime or dependency offers an
-official LTS channel. Otherwise, use the latest stable release compatible with
-this project; do not select prereleases by default. Verify upstream status and
-compatibility before an upgrade, pin the reviewed version, and rerun checks and
-the demo. A newer version is not automatically compatible or automatically
-authorized for deployment.
+Prefer the latest supported LTS release where an official LTS channel exists;
+otherwise choose the latest compatible stable release. Do not use prereleases or
+canaries by default. Verify upstream status and compatibility, pin the reviewed
+version, update the lockfile, and run the full checks before treating an update as
+validated. This does not authorize production deployment or automatic upgrades.
 
-Node 26.13.0 became the latest LTS on 2026-10-28, according to the
-[official release announcement](https://nodejs.org/en/blog/release/v26.13.0) and
-[release index](https://nodejs.org/dist/index.json). Node 24 is still an LTS line;
-this project chooses the newer LTS baseline. GitHub Actions are pinned to reviewed
-stable releases because they do not expose an LTS channel. There are currently
-no npm dependencies to upgrade.
+Current direct dependencies are pinned: Effect 4.1.0, Bun types 1.4.4, TypeScript
+7.0.2, Oxlint 1.90.0, and its type-aware engine 7.0.2005. Bun has no official LTS
+channel; this project uses its verified stable release. Effect's explicitly
+unstable SQL APIs are intentionally avoided: storage uses built-in bun:sqlite
+behind a small Effect resource boundary. See the
+[Effect release](https://github.com/Effect-TS/effect/releases/tag/effect@4.1.0),
+[Bun release](https://github.com/oven-sh/bun/releases/tag/bun-v1.4.4), and
+[Oxlint release](https://github.com/oxc-project/oxc/releases/tag/oxlint_v1.90.0).
+
+## Architecture and operational limits
+
+Read [architecture](docs/architecture.md), [security](docs/security.md), and
+[CI](docs/ci.md). AGENTS.md points to these canonical documents rather than
+maintaining another instruction tree.
+
+The ledger is designed for a local filesystem and a small single-host workload.
+It verifies WAL, FULL synchronous mode, foreign keys, a five-second busy timeout,
+and SQLite 3.51.3 or newer. Diagnostics report the **actual** SQLite version.
+Bun can use system SQLite on macOS, so a Bun version pin alone does not guarantee
+the same SQLite engine across operating systems. Linux is the verification
+target; macOS and Windows are not claimed tested. No network/shared filesystem,
+multi-host coordination, backup automation, or external exactly-once guarantee
+is provided. The ledger has a 10,000-delivery/finding capacity.
 
 ## Roadmap, not implemented
 
-1. Read-only GitHub adapter with verified installation/repository authorization,
-   source snapshots bound to full SHAs, and authenticated webhook deliveries.
-2. Pluggable reviewer provider and evaluation fixtures for real finding quality,
-   with repository text treated as untrusted data rather than instructions.
-3. Durable transactional storage and a separately authorized publisher, including
-   current-head revalidation, rate limits, escaped output, and human controls.
-4. Follow-up verification that distinguishes a closed issue from a verified fix.
-   No automatic issue recreation is supported in this starter.
-5. An isolated, explicitly authorized executor. Never grant execution permission
-   just because the reviewer produced a finding.
+1. Read-only GitHub adapter: authenticated repository/installation binding and
+   independently verified SHA-bound snapshots.
+2. Pluggable AI reviewer and quality evaluations, treating repository text as
+   untrusted data rather than instructions.
+3. Separately authorized publisher: fresh-head checks, rendering/redaction,
+   rate limits, human controls, and uncertain-write reconciliation.
+4. Cross-commit finding reconciliation and verified persistence/fix follow-ups.
+5. An isolated executor with separate, explicit authority.
 
-There is no LLM provider, GitHub App, webhook server, publisher, sandbox runner,
-credential handling, or deployment configuration here. A minimal read-only
-[CI workflow](.github/workflows/ci.yml) runs the tests and synthetic demo; see
-[docs/ci.md](docs/ci.md) for its boundaries.
-
-Read the [security boundaries](docs/security.md) before designing adapters.
+There is no LLM provider, GitHub App, webhook server, publisher, sandbox executor,
+application credential handling, or deployment job in this starter.
 
 ## License and provenance
 
 MIT, copyright 2026 DocksDocks. See [LICENSE](LICENSE).
 
-Robodocks was motivated by the idea of reusable repository automation, with
-RoboOMP as a conceptual reference. This starter is original code; no RoboOMP
-source code or private project configuration has been imported. If upstream code
-is incorporated later, review its license and preserve all required notices.
+RoboOMP is a conceptual reference for reusable repository automation. This
+starter is original code; no upstream source or private project configuration
+has been imported. Preserve applicable notices if upstream code is added later.

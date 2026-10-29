@@ -1,39 +1,38 @@
 # CI boundaries
 
 The [workflow](../.github/workflows/ci.yml) runs on pull requests and pushes to
-`main`, using a GitHub-hosted Ubuntu runner and Node.js **26.13.0 LTS**, read from
-the exact `.nvmrc` pin. The supported engine range starts at that LTS release,
-not at the earlier non-LTS 26.12.x releases. It runs
-`npm run check` and the synthetic JSON demo. No dependency installation is needed.
+main, on a GitHub-hosted Ubuntu runner. It reads the exact Bun version from
+.bun-version and installs the committed bun.lock with:
 
-The token has `contents: read` only, checkout does not persist credentials, package
-caching is disabled, and no application secrets are supplied. There is no
-publisher, deployment job, or repository-write step. A five-minute job timeout
-and cancellation of superseded runs bound resource use.
+    bun install --frozen-lockfile --ignore-scripts
 
-Actions are pinned to immutable commits verified against their official releases:
+No dependency lifecycle scripts run. The job then runs bun run check and the
+synthetic durable demo. The aggregate command performs real strict TypeScript
+checking, type-aware stable Oxlint, formatting verification, and Bun tests.
+Native bun lint is not used because it is canary-only in stable Bun 1.4.4.
+
+The token has contents: read only and checkout does not persist credentials.
+No application secrets, write tokens, deployment jobs, publisher steps, or
+repository data are supplied. DO_NOT_TRACK=1 disables Bun crash-report uploads
+and telemetry. A five-minute timeout and cancellation of superseded runs bound
+resource use. The workflow uses pull_request, not privileged pull_request_target.
+
+Actions are pinned to verified official stable release commits:
 
 - [actions/checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1):
-  `3d3c42e5aac5ba805825da76410c181273ba90b1`.
-- [actions/setup-node v7.1.0](https://github.com/actions/setup-node/releases/tag/v7.1.0):
-  `949feb2413d6458794dcd2491c4babbbce0c15c1`.
+  3d3c42e5aac5ba805825da76410c181273ba90b1.
+- [oven-sh/setup-bun v2.2.0](https://github.com/oven-sh/setup-bun/releases/tag/v2.2.0):
+  0c5077e51419868618aeaa5fe8019c62421857d6.
 
-The workflow uses `pull_request`, not privileged `pull_request_target`. CI executes
-candidate code on its runner; that is separate from the Robodocks planner, which
-never executes the source text in review fixtures. Do not add secrets or write
-credentials to these tests. Review future action upgrades and workflow changes.
-The project runtime pin is separate from an action's own internal JavaScript
-runtime; the test commands run under the Node version installed by `setup-node`.
+An action's internal Node runtime is separate from the Bun runtime that executes
+project commands. Candidate code runs on an isolated runner, whereas the
+Robodocks planner never executes source text from review fixtures.
 
-For updates, follow the README's LTS-first, stable-otherwise policy. Keep the
-`.nvmrc` pin and minimum `package.json` engine version aligned, then verify the
-full suite and demo on that actual runtime before treating the update as validated
-or merging it.
+The version-selection policy and canonical commands live in the README. Update
+pins and lockfile together, verify install without scripts, and run the full
+suite and demo on the actual selected runtime. Linux/Bun 1.4.4 reports SQLite
+3.53.4 in local verification; macOS and Windows are not claimed tested. Diagnostics
+must report the actual engine rather than infer it from the Bun version.
 
-Local execution of the same commands verifies the code, not GitHub runner startup,
-repository Actions settings, or remote job success. Inspect the exact commit's
-hosted checks after publication before reporting CI as passed.
-
-Add pinned development dependencies, a lockfile, and a static type-check step
-before claiming full TypeScript verification. This starter's `check` command is
-syntax checking plus runtime tests, not a TypeScript compiler run.
+Local success is not hosted CI success. Inspect checks for the exact published
+commit before treating the update as hosted-validated or ready to merge.
