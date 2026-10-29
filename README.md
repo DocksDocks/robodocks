@@ -1,5 +1,208 @@
 # Robodocks
 
-An open-source, reviewer-first foundation for GitHub repositories.
+A generic, open-source foundation for repository automation: **reviewer first,
+executor later**. The integration target is any explicitly authorized GitHub
+repository, without project-specific business rules.
 
-The initial implementation is being developed in a draft pull request. No hosted service, GitHub App installation, or autonomous executor is active.
+## Current status: a runnable dry-run foundation
+
+This starter **does not discover bugs or perform AI code reviews yet**. It accepts
+proposed findings, validates their structure and cited evidence, and reserves
+structured publication intents in a local SQLite ledger. It cannot publish
+comments, open issues, modify reviewed source, merge, or deploy.
+
+- Operator-owned repository allowlist and publication-disabled policy.
+- Exact repository, pull request, SHA, path, line, and evidence checks.
+- Required impact, suggestion, severity, and confidence fields.
+- Stale-head rejection before finding state changes.
+- Durable delivery/finding deduplication and transactional pending intent state.
+- Typed Effect errors, scoped resources, and a single Effect Schema contract.
+- Explicit acknowledgement/closure observations; no automatic follow-up issues.
+- Synthetic examples and tests, without credentials or private project context.
+
+These checks establish **structural validity**, not factual correctness,
+confidence calibration, or review completeness. "Read-only" applies to reviewed
+repositories and external services; planning writes the selected local ledger.
+Explicit inspection does not admit deliveries or change ledger records.
+
+## Setup and commands
+
+Use **Bun 1.4.4**, pinned in .bun-version. Bun supplies the runtime, package
+manager, formatter, and strict TypeScript checker. Tests use Vitest hosted
+explicitly by Bun, with @effect/vitest for Effect-aware tests. There is no Node
+runtime or npm installation step.
+
+Set DO_NOT_TRACK=1 in your environment to disable Bun crash-report uploads and
+telemetry. CI sets it explicitly. No application credentials are needed.
+
+    bun install --frozen-lockfile --ignore-scripts
+    bun run check
+    bun run demo
+
+The demo explicitly uses local/demo.sqlite, creating its parent directory when
+needed. Repeating it reopens the same ledger: no duplicate intent is created and
+the original pending intent remains available through explicit inspection. For another experiment,
+choose a different database file instead of deleting an existing working ledger.
+
+To emit only JSON without a package-script banner:
+
+    bun src/cli.ts plan --policy examples/policy.json --input examples/review.json --database local/demo.sqlite
+
+Planning reads the two explicitly supplied JSON inputs and writes only its
+selected local SQLite ledger (including SQLite WAL/SHM sidecars). Its JSON contains
+schemaVersion: 1, operation: "plan", the current delivery outcome, compact
+intent/finding IDs and statuses, and storage diagnostics. It does **not** return
+finding prose, source evidence, or a historical ledger snapshot. A successful
+plan is independent of unrelated historical inspection failures.
+
+Inspect an existing ledger separately, without a review input or a new delivery:
+
+    bun src/cli.ts inspect --policy examples/policy.json --database local/demo.sqlite --repository example-owner/example-project --status proposed --limit 20
+
+Inspection requires one explicitly allowlisted repository. Status refers to the
+finding lifecycle: proposed (default), published, closed, or all. Limit defaults
+to 20 and must be 1–100. Its JSON has schemaVersion: 1, operation: "inspect",
+repository, status, items (each a finding record plus its intent/payload), and
+nextCursor (null when finished). Pass a returned cursor with --cursor while
+keeping the same database, repository, and status. Each page is a consistent
+read; the cursor excludes findings appended after the first page's high-water
+mark, but lifecycle changes between pages are not frozen. Restart inspection for
+a fresh view. Cursors are continuation hints, not signed authorization or durable
+historical snapshots.
+
+Inspection opens an existing regular database read-only, never creates a missing
+ledger or parent directory, never migrates or changes journal settings, and
+remains available at capacity or after tightening admission confidence. SQLite
+may still use/create coordination sidecars for a live WAL database; read-only
+here means no ledger/schema writes, not zero filesystem activity. See
+[local database operations](docs/security.md#local-database-operations).
+
+The old flags-only invocation remains an alias for plan. **Draft JSON change:**
+the old top-level snapshot and intent finding payloads are no longer emitted by
+the CLI. Use explicit inspection for bounded payload access; the library APIs
+remain compatible.
+
+Repository paths inside an input are identifiers, not local files to execute or
+open. Policy is never loaded from pull-request content. Errors are sanitized JSON
+on stderr with a nonzero exit code. Inspection includes untrusted source evidence;
+keep it and the local ledger out of public logs. If plan output fails after a
+commit, retry the identical delivery and inspect separately rather than assuming
+no records were saved.
+
+Development commands:
+
+| Command                     | Purpose                                            |
+| --------------------------- | -------------------------------------------------- |
+| bun check --no-script       | Strict, no-emit TypeScript checking                |
+| bun fmt --no-script         | Format supported project files                     |
+| bun fmt --no-script --check | Require formatting without rewriting files         |
+| bun run lint                | Stable Oxlint with type-aware rules, zero warnings |
+| bun run test                | Bun-hosted Vitest contract, CLI, and SQLite tests  |
+| bun run check               | Type checking, lint, formatting check, and tests   |
+
+The --no-script switches select Bun's built-in commands rather than similarly
+named package scripts. Bun 1.4.4 does **not** expose native bun lint; that command
+is canary-only in this release, so stable Oxlint is used instead.
+
+Strict checking includes tests, dependency declarations, unchecked indexed
+access, exact optional properties, unused code, and no implicit overrides.
+TypeScript 7.0.2 is pinned as a compatible editor baseline; Bun performs the
+actual strict-check gate and may incorporate newer checker behavior.
+There is no separate transpilation or build step.
+
+Use **bun run test**, not bun test: one runner executes the entire suite. The
+script launches Vitest with Bun's --bun flag; configuration and a worker test
+reject an accidental Node runtime. Native SQLite and subprocess cases use live
+services (it.live or ordinary Vitest tests), never a simulated database or fake
+clock. Pure Effect contract properties use it.effect. Each test owns its temporary
+files, and each database-backed property evaluation, including shrinking, acquires
+a fresh scoped database. No mutable reviewer layer is shared across tests. The
+configuration uses up to two isolated fork workers and sequential tests within
+each file for bounded native-process load; individual tests may explicitly exercise concurrent clients.
+Seeded properties supplement, rather than replace, the explicit regressions.
+
+## Library boundary
+
+Use withReviewer from src/reviewer.ts. Its callback receives an Effect-based
+reviewer; the database connection closes when the scoped program finishes.
+
+    import { Effect } from "effect";
+    import { withReviewer } from "./src/reviewer.ts";
+
+    const program = withReviewer(operatorPolicy, "local/review.sqlite", reviewer =>
+      Effect.gen(function* () {
+        const first = yield* reviewer.plan(reviewRequest);
+        const replay = yield* reviewer.plan(reviewRequest);
+        return { first, replay, snapshot: yield* reviewer.snapshot() };
+      })
+    );
+    const result = await Effect.runPromise(program);
+
+For bounded read-only access use inspectLedger from src/inspection.ts with
+operator policy, an existing filename, and { repository, status, limit, cursor? }.
+It returns an Effect and owns its connection scope. The legacy reviewer.snapshot()
+remains a full allowlist-wide diagnostic for library callers; it is not a bounded
+production inspection interface and is never called by the CLI plan command.
+
+Inputs are illustrated in examples/policy.json and examples/review.json. A future
+source adapter must authenticate the repository and independently fetch the
+current head and SHA-bound source snapshot. The demo uses synthetic observations.
+
+## Version selection policy
+
+Prefer the latest supported LTS release where an official LTS channel exists;
+otherwise choose the latest compatible stable release. Do not use prereleases or
+canaries by default. Verify upstream status and compatibility, pin the reviewed
+version, update the lockfile, and run the full checks before treating an update as
+validated. This does not authorize production deployment or automatic upgrades.
+
+Current direct dependencies are pinned: Effect 4.1.0, Bun types 1.4.4, TypeScript
+7.0.2, Oxlint 1.90.0, its type-aware engine 7.0.2005, Vitest 5.0.5, and
+@effect/vitest 4.0.6. The released @effect/vitest package is stable, but its
+integration API is explicitly marked unstable upstream; it is pinned and used
+only in development tests, not application code. Bun has no official LTS
+channel; this project uses its verified stable release. Effect's explicitly
+unstable SQL APIs are intentionally avoided: storage uses built-in bun:sqlite
+behind a small Effect resource boundary. See the
+[Effect release](https://github.com/Effect-TS/effect/releases/tag/effect@4.1.0),
+[Bun release](https://github.com/oven-sh/bun/releases/tag/bun-v1.4.4), and
+[Oxlint release](https://github.com/oxc-project/oxc/releases/tag/oxlint_v1.90.0).
+
+## Architecture and operational limits
+
+Read [architecture](docs/architecture.md), [security](docs/security.md), and
+[CI](docs/ci.md). AGENTS.md points to these canonical documents rather than
+maintaining another instruction tree.
+
+The ledger is designed for a local filesystem and a small single-host workload.
+Planning verifies WAL, FULL synchronous mode, foreign keys, a five-second busy
+timeout, and SQLite 3.51.3 or newer. Its diagnostics report the **actual** SQLite
+version. Inspection checks ownership/schema and the same minimum engine version
+without enabling or attesting writer durability settings.
+Bun can use system SQLite on macOS, so a Bun version pin alone does not guarantee
+the same SQLite engine across operating systems. Linux is the verification
+target; macOS and Windows are not claimed tested. No network/shared filesystem,
+multi-host coordination, backup automation, or external exactly-once guarantee
+is provided. The ledger has a 10,000-delivery/finding capacity.
+
+## Roadmap, not implemented
+
+1. Read-only GitHub adapter: authenticated repository/installation binding and
+   independently verified SHA-bound snapshots.
+2. Pluggable AI reviewer and quality evaluations, treating repository text as
+   untrusted data rather than instructions.
+3. Separately authorized publisher: fresh-head checks, rendering/redaction,
+   rate limits, human controls, and uncertain-write reconciliation.
+4. Cross-commit finding reconciliation and verified persistence/fix follow-ups.
+5. An isolated executor with separate, explicit authority.
+
+There is no LLM provider, GitHub App, webhook server, publisher, sandbox executor,
+application credential handling, or deployment job in this starter.
+
+## License and provenance
+
+MIT, copyright 2026 DocksDocks. See [LICENSE](LICENSE).
+
+RoboOMP is a conceptual reference for reusable repository automation. This
+starter is original code; no upstream source or private project configuration
+has been imported. Preserve applicable notices if upstream code is added later.

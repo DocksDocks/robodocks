@@ -1,0 +1,32 @@
+{
+  "deliveryId": "synthetic-delivery-001",
+  "context": {
+    "repository": "example-owner/example-project",
+    "pullRequest": 7,
+    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "currentHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "files": [
+      {
+        "path": "src/average.ts",
+        "content": "export function average(values: number[]): number {\n  return values.reduce((sum, value) => sum + value, 0) / values.length;\n}\n"
+      }
+    ]
+  },
+  "findings": [
+    {
+      "ruleId": "average.empty-input",
+      "repository": "example-owner/example-project",
+      "pullRequest": 7,
+      "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "path": "src/average.ts",
+      "startLine": 2,
+      "endLine": 2,
+      "title": "Empty input produces NaN",
+      "severity": "medium",
+      "evidence": "  return values.reduce((sum, value) => sum + value, 0) / values.length;",
+      "impact": "Calling average([]) divides zero by zero and returns NaN, which can contaminate downstream calculations.",
+      "suggestion": "Define the empty-input contract explicitly, then guard the empty array and test that behavior.",
+      "confidence": 0.98
+    }
+  ]
+}

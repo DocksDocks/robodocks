@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "mode": "read-only",
+  "publication": "disabled",
+  "allowedRepositories": ["example-owner/example-project"],
+  "minimumConfidence": 0.8,
+  "maxFindings": 20
+}
