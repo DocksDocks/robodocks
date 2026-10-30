@@ -18,6 +18,7 @@ comments, open issues, modify reviewed source, merge, or deploy.
 - Required impact, suggestion, severity, and confidence fields.
 - Stale-head rejection before finding state changes.
 - Durable delivery/finding deduplication and transactional pending intent state.
+- Explicit local SQLite snapshots and validated fresh-path recovery.
 - Typed Effect errors, scoped resources, and a single Effect Schema contract.
 - Explicit acknowledgement/closure observations; no automatic follow-up issues.
 - Bounded public GitHub source collection, with immutable provenance and exact text.
@@ -125,6 +126,39 @@ a fresh scoped database. No mutable reviewer layer is shared across tests. The
 configuration uses up to two isolated fork workers and sequential tests within
 each file for bounded native-process load; individual tests may explicitly exercise concurrent clients.
 Seeded properties supplement, rather than replace, the explicit regressions.
+
+## Local backup and fresh-path restore
+
+Choose private local paths outside the checkout. Both destinations must be new;
+these commands never overwrite an existing snapshot or ledger. Create the
+private destination directory first; recovery requires an existing parent.
+
+    bun src/cli.ts backup --policy examples/policy.json --database /private/reviews.sqlite --output /private/reviews-snapshot.sqlite
+    bun src/cli.ts restore --policy examples/policy.json --input /private/reviews-snapshot.sqlite --database /private/recovered.sqlite
+
+Backup captures a consistent SQLite snapshot, including committed WAL state;
+copying only the main file of a live ledger is **not** a supported backup.
+Restore validates ownership, supported schema, SQLite integrity and foreign keys,
+and all stored application records before making the new ledger available.
+The policy must authorize every repository in the snapshot: recovery rejects
+unauthorized records rather than silently dropping them. A restored ledger
+retains delivery replay/deduplication and pending intents as of the snapshot.
+Restart inspection **without an old cursor** after restore; rowid-based cursors
+are not portable recovery checkpoints. Use the restored path explicitly for
+subsequent plan/review/inspect commands.
+
+The JSON result reports schemaVersion, operation, deliveries/findings/intents
+counts, bytes, sha256 and cursorAction: "restart", not finding prose or evidence. A failed output write or late interruption may occur after
+the destination is complete. Inspect that path before retrying with a different
+new destination; do not delete or overwrite a file based solely on CLI failure.
+
+Snapshots contain the full sensitive ledger. Keep them private; no encryption,
+automatic retention, remote upload or storage provisioning is included. A local
+snapshot does not survive loss of its host unless the operator separately
+preserves it. Restoring a stale snapshot loses deduplication for later deliveries
+and cannot reconcile external side effects. This is not a cloud workspace
+replacement drill or an exactly-once publication guarantee; publishing remains
+disabled. See [recovery boundaries](docs/security.md#local-recovery-boundaries).
 
 ## Library boundary
 

@@ -7,6 +7,41 @@ import { ContractError, requireCondition } from "./validation.ts";
 const APPLICATION_ID = 0x52444253;
 const SCHEMA_VERSION = 1;
 
+// Shared canonical v1 DDL: recovery compares against a trusted in-memory reference.
+export const INITIAL_SCHEMA_SQL = `
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      ) STRICT;
+      CREATE TABLE deliveries (
+        id TEXT PRIMARY KEY,
+        digest TEXT NOT NULL,
+        repository TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE findings (
+        id TEXT PRIMARY KEY,
+        repository TEXT NOT NULL,
+        pull_request INTEGER NOT NULL CHECK (pull_request > 0),
+        head_sha TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('proposed', 'published', 'closed'))
+      ) STRICT;
+      CREATE TABLE outbox (
+        id TEXT PRIMARY KEY,
+        finding_id TEXT NOT NULL UNIQUE REFERENCES findings(id),
+        payload TEXT NOT NULL CHECK (json_valid(payload)),
+        status TEXT NOT NULL CHECK (status IN ('pending', 'acknowledged')),
+        external_reference TEXT,
+        CHECK ((status = 'pending' AND external_reference IS NULL) OR
+               (status = 'acknowledged' AND external_reference IS NOT NULL))
+      ) STRICT;
+      CREATE INDEX deliveries_repository ON deliveries(repository);
+      CREATE INDEX findings_repository ON findings(repository);
+      PRAGMA application_id = ${APPLICATION_ID};
+      PRAGMA user_version = ${SCHEMA_VERSION};
+      INSERT INTO schema_migrations (version, name) VALUES (1, 'initial-ledger');
+    `;
+
 export class StoreError extends Data.TaggedError("StoreError")<{
   readonly code: string;
   readonly message: string;
@@ -110,7 +145,7 @@ function ownership(db: Database): number {
   return version;
 }
 
-function verifySQLiteVersion(db: Database): string {
+export function verifySQLiteVersion(db: Database): string {
   const sqliteVersion = db
     .query<{ version: string }, []>("SELECT sqlite_version() AS version")
     .get()?.version;
@@ -160,39 +195,7 @@ function initialize(db: Database): StorageDiagnostics {
   );
   db.transaction(() => {
     if (ownership(db) === SCHEMA_VERSION) return;
-    db.run(`
-      CREATE TABLE schema_migrations (
-        version INTEGER PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE,
-        applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      ) STRICT;
-      CREATE TABLE deliveries (
-        id TEXT PRIMARY KEY,
-        digest TEXT NOT NULL,
-        repository TEXT NOT NULL
-      ) STRICT;
-      CREATE TABLE findings (
-        id TEXT PRIMARY KEY,
-        repository TEXT NOT NULL,
-        pull_request INTEGER NOT NULL CHECK (pull_request > 0),
-        head_sha TEXT NOT NULL,
-        status TEXT NOT NULL CHECK (status IN ('proposed', 'published', 'closed'))
-      ) STRICT;
-      CREATE TABLE outbox (
-        id TEXT PRIMARY KEY,
-        finding_id TEXT NOT NULL UNIQUE REFERENCES findings(id),
-        payload TEXT NOT NULL CHECK (json_valid(payload)),
-        status TEXT NOT NULL CHECK (status IN ('pending', 'acknowledged')),
-        external_reference TEXT,
-        CHECK ((status = 'pending' AND external_reference IS NULL) OR
-               (status = 'acknowledged' AND external_reference IS NOT NULL))
-      ) STRICT;
-      CREATE INDEX deliveries_repository ON deliveries(repository);
-      CREATE INDEX findings_repository ON findings(repository);
-      PRAGMA application_id = ${APPLICATION_ID};
-      PRAGMA user_version = ${SCHEMA_VERSION};
-      INSERT INTO schema_migrations (version, name) VALUES (1, 'initial-ledger');
-    `);
+    db.run(INITIAL_SCHEMA_SQL);
   }).immediate();
   return {
     sqliteVersion,
