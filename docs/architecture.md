@@ -132,6 +132,41 @@ read snapshot: later appends are outside the original high-water bound, while
 lifecycle changes can alter which older rows match subsequent pages. No stable
 cross-page historical snapshot or retention mechanism is promised.
 
+## Portable local ledger recovery
+
+`backupLedger(policy, source, destination)` and
+`restoreLedger(policy, source, destination)` in `src/recovery.ts` return scoped
+Effects. Both require an existing regular source and a new explicit destination
+in an existing trusted local directory. Schema v1 is unchanged. Recovery uses
+SQLite `VACUUM INTO` from a read-only source connection to a private staging
+file, not a raw main-file copy; committed WAL state is included in the consistent
+snapshot. VACUUM may renumber rowids, so restart inspection without old cursors.
+
+The entire ledger must pass owner/version/exact-schema checks,
+`integrity_check`, `foreign_key_check` and intrinsic application validation,
+including delivery identities, finding/outbox identities and lifecycle pairing.
+The shared observation decoder is reused. Unlike repository-filtered inspection,
+recovery checks every row and rejects any repository outside the operator policy.
+Source and candidate files are bounded at 512 MiB and records at the existing
+10,000-row capacity. Historical admission thresholds are not reapplied.
+
+A candidate is validated read-only before atomic no-clobber hardlink promotion.
+Symlink path components, hardlinked sources, existing destinations and destination
+sidecars are rejected. Cleanup is limited to owned staging paths. No writable
+initialization happens during restore: a subsequent normal plan/review call
+opens the validated restored ledger with the existing writer setup contract.
+Post-promotion synchronization failure reports `RECOVERY_COMPLETION_UNKNOWN`;
+output failure or late interruption can also follow a complete destination.
+The operator must inspect rather than assume failure means no file exists.
+
+Results contain schemaVersion 1, operation, deliveries/findings/intents counts,
+bytes, sha256 and cursorAction: "restart". The hash identifies file bytes, not
+source provenance. Logical records and replay state are preserved as of the
+snapshot, not writes committed later. No external publication reconciliation,
+remote durability, retention or environment-lifecycle integration is supplied.
+See [security](security.md#local-recovery-boundaries) and the recovery-specific
+[formal applicability limits](ci.md#formal-verification-applicability).
+
 ## Where to change behavior
 
 | Change                                                 | Start here                               | Regression coverage                                |

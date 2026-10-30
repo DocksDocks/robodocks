@@ -136,7 +136,14 @@ try {
     closeSync(full);
   }
 
-  for (const command of ["plan", "inspect", "collect", "review"]) {
+  for (const command of [
+    "plan",
+    "inspect",
+    "collect",
+    "review",
+    "backup",
+    "restore",
+  ]) {
     assert.match(run(bin, [command, "--help"]).stdout, /Usage:/);
   }
   const policy = join(installed, "examples", "policy.json");
@@ -172,6 +179,61 @@ try {
   );
   assert.equal(inspection.operation, "inspect");
   assert.match(JSON.stringify(inspection), /average.empty-input/);
+  const snapshot = join(temporary, "snapshot.sqlite");
+  const restoredDatabase = join(temporary, "restored.sqlite");
+  assert.equal(
+    JSON.parse(
+      run(bin, [
+        "backup",
+        "--policy",
+        policy,
+        "--database",
+        database,
+        "--output",
+        snapshot,
+      ]).stdout,
+    ).operation,
+    "backup",
+  );
+  assert.equal(
+    JSON.parse(
+      run(bin, [
+        "restore",
+        "--policy",
+        policy,
+        "--input",
+        snapshot,
+        "--database",
+        restoredDatabase,
+      ]).stdout,
+    ).operation,
+    "restore",
+  );
+  const restoredPlan = JSON.parse(
+    run(bin, [
+      "plan",
+      "--policy",
+      policy,
+      "--input",
+      input,
+      "--database",
+      restoredDatabase,
+    ]).stdout,
+  );
+  assert.equal(restoredPlan.plan.deliveryStatus, "duplicate");
+  const restoredInspection = JSON.parse(
+    run(bin, [
+      "inspect",
+      "--policy",
+      policy,
+      "--database",
+      restoredDatabase,
+      "--repository",
+      "example-owner/example-project",
+    ]).stdout,
+  );
+  assert.deepEqual(restoredInspection.items, inspection.items);
+  assert.equal(restoredInspection.nextCursor, null);
   const agentResponse = join(temporary, "agent-response.json");
   const rejectedDatabase = join(temporary, "rejected.sqlite");
   writeFileSync(agentResponse, JSON.stringify({ context: "not trusted" }));

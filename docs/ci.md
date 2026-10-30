@@ -70,7 +70,10 @@ interoperability is not claimed by these synthetic tests.
 
 The workflow also runs `bun run test:package`. See [packaging](packaging.md) for
 the exact tarball contents, production-only clean installation, CLI smoke and
-platform limits. This is an artifact test, not a registry release.
+platform limits. The installed smoke also backs up a synthetic ledger, restores
+it into a new path, verifies duplicate delivery replay and inspects retained
+pending records. This is an artifact test, not a registry release or a real
+cloud-environment replacement drill.
 
 ## Review gate for assistant-created pull requests
 
@@ -106,3 +109,11 @@ invariants. A proof must name its specification, checker and implementation
 connection. AI review, prose arguments and passing tests are not formal proofs;
 model checking does not establish correctness of all TypeScript, Bun or SQLite.
 Never relabel partial, failed or unexecuted verification as a passing gate.
+
+Recovery changes preserve schema v1 and the admission/lifecycle transition
+contract. The admission model assumes durable ledger state across reset; it
+does not model filesystem snapshots, restore validation, atomic file promotion,
+SQLite internals or loss of writes after an older snapshot. It is therefore not
+a proof of backup/restore correctness. Recovery-specific regression tests and
+the installed artifact flow provide implementation evidence; the existing TLC
+and negative-control gate remains required for the admission model.
