@@ -106,3 +106,18 @@ invariants. A proof must name its specification, checker and implementation
 connection. AI review, prose arguments and passing tests are not formal proofs;
 model checking does not establish correctness of all TypeScript, Bun or SQLite.
 Never relabel partial, failed or unexecuted verification as a passing gate.
+
+## Workspace preview verification
+
+Workspace regressions use isolated temporary directories to exercise exclusive
+root/task creation, strict identity metadata, conservative inventory statuses,
+path and link guards, protected-content hints and bounded scans. The installed
+artifact smoke exercises the public workspace CLI rather than only source
+imports. Inventory must not mutate task contents or invoke Git/network services;
+creation commands intentionally write metadata. Local checks do not establish
+remote checkpoint durability, real process inactivity or safe deletion.
+
+The existing admission/replay TLA model does not model workspace paths,
+filesystem races or cleanup safety. No formal proof of workspace safety is
+claimed; this first slice has no deletion transition. A future deletion feature
+requires its own explicit invariants, evidence and authorization review.

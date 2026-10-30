@@ -305,3 +305,49 @@ and [security boundaries](docs/security.md).
 
 For installation, the companion skill and clean tarball verification, see
 [CLI packaging](docs/packaging.md).
+
+## Task workspace cleanup preview
+
+The workspace commands inventory disposable task folders; they **never delete
+anything** and do not implement automatic cleanup or a retention policy. Choose
+an existing private parent, keeping ledgers, backups and credentials elsewhere.
+The root must be a new absolute normalized path named `robodocks-tasks`, with at
+least three path components and no trailing slash or symlink ancestors:
+
+    robodocks workspace-init --root /absolute/private/robodocks-tasks
+    robodocks task-create --root /absolute/private/robodocks-tasks --task example-task
+    robodocks workspace-inventory --root /absolute/private/robodocks-tasks
+
+`workspace-init` and `task-create` create private directories and JSON metadata;
+`workspace-inventory` only reads. `dryRun: true` describes cleanup, not an absence
+of writes by the creation commands. All three report `deletionAuthorized: false`.
+Existing directories are never adopted or overwritten. Task IDs are 1–64
+lowercase ASCII letters, digits or hyphens, starting with a letter or digit.
+
+Each new task starts with `task.json` containing `state: "active"`,
+`gitState: "unknown"`, `artifactState: "unknown"`, and `checkpoint: null`.
+The operator may edit this manifest, retaining its generated identity fields:
+
+- `state`: `active` or `completed`.
+- `gitState`: `unknown`, `dirty`, `unpushed` or `claimed-clean`.
+- `artifactState`: `unknown`, `sole-copy` or `claimed-preserved`.
+- `checkpoint`: `null` or `{ "url": "https://github.com/OWNER/REPO/issues/123", "headSha": "<40 lowercase hex characters>" }`; a PR URL is also accepted.
+
+These are **operator claims, not verified facts**. Inventory reports `blocked`
+when it finds concrete blockers, otherwise `needs-verification`. Both statuses
+always retain activity, Git state, artifact preservation and remote checkpoint
+verification blockers. Neither means safe to delete or grants permission. No Git
+commands, network requests, scheduler or external storage service are involved.
+
+### Durable GitHub checkpoint workflow
+
+Before marking a task completed, preserve its intended code in a pushed commit
+and record a concise checkpoint on its issue or PR: exact commit/PR, completed
+work, checks and results, unresolved work, and the next step. Keep non-Git
+artifacts in separately approved durable storage; never assume a workspace copy
+will survive replacement. Do not publish credentials, private scratch notes or
+raw logs containing secrets. Put the checkpoint reference in `task.json` only
+after recording it. This CLI does not publish, fetch or verify that checkpoint.
+Future deletion requires independently verified preservation and inactivity,
+an agreed retention policy and separate authorization; this preview provides
+none of those capabilities.

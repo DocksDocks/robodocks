@@ -1,3 +1,8 @@
+import {
+  initializeWorkspace,
+  createTask,
+  inventoryWorkspace,
+} from "./workspace.ts";
 import { version } from "../package.json";
 import { reviewGitHubSource } from "./agent-review.ts";
 import { randomUUID } from "node:crypto";
@@ -15,10 +20,14 @@ const usage =
   "       robodocks inspect --policy <policy.json> --database <existing-ledger.sqlite> --repository <owner/repo> [--status proposed|published|closed|all] [--limit 1..100] [--cursor <cursor>]\n" +
   "       robodocks collect --policy <policy.json> --repository <owner/repo> --pull-request <number> [--attempt <id>]\n" +
   "       robodocks review --policy <policy.json> --input <agent-response.json> --database <ledger.sqlite> --repository <owner/repo> --pull-request <number> --attempt <id>\n" +
+  "       robodocks workspace-init --root <new-absolute-path/robodocks-tasks>\n" +
+  "       robodocks task-create --root <absolute-path/robodocks-tasks> --task <slug>\n" +
+  "       robodocks workspace-inventory --root <absolute-path/robodocks-tasks>\n" +
   "       robodocks --version\n" +
   "The legacy flags-only form is an alias for plan. Inspection defaults to proposed and limit 20.";
 
-let activeOperation: "plan" | "inspect" | "collect" | "review" | undefined;
+let activeOperation:
+  "plan" | "inspect" | "collect" | "review" | "workspace" | undefined;
 
 function parseArguments(args: string[]) {
   const operation =
@@ -173,11 +182,13 @@ function output(text: string) {
     catch: () =>
       new ContractError(
         "OUTPUT",
-        activeOperation === "plan" || activeOperation === "review"
-          ? "Could not write review output; the delivery may already be committed"
-          : activeOperation === "inspect"
-            ? "Could not write inspection output; no delivery was admitted"
-            : "Could not write output; no delivery was admitted",
+        activeOperation === "workspace"
+          ? "Could not write workspace output; initialization or task creation may have written metadata; nothing was deleted"
+          : activeOperation === "plan" || activeOperation === "review"
+            ? "Could not write review output; the delivery may already be committed"
+            : activeOperation === "inspect"
+              ? "Could not write inspection output; no delivery was admitted"
+              : "Could not write output; no delivery was admitted",
       ),
   });
 }
@@ -251,10 +262,62 @@ const main = Effect.gen(function* () {
   if (
     (args.length === 1 && args[0] === "--help") ||
     (args.length === 2 &&
-      ["plan", "inspect", "collect", "review"].includes(args[0] ?? "") &&
+      [
+        "plan",
+        "inspect",
+        "collect",
+        "review",
+        "workspace-init",
+        "task-create",
+        "workspace-inventory",
+      ].includes(args[0] ?? "") &&
       args[1] === "--help")
   ) {
     yield* output(usage + "\n");
+    return;
+  }
+  if (
+    ["workspace-init", "task-create", "workspace-inventory"].includes(
+      args[0] ?? "",
+    )
+  ) {
+    activeOperation = "workspace";
+    const operation = args[0];
+    const values = yield* Effect.try({
+      try: () => {
+        const flags = new Map<string, string>();
+        for (let index = 1; index < args.length; index += 2) {
+          const key = args[index];
+          const value = args[index + 1];
+          requireCondition(
+            key &&
+              (key === "--root" ||
+                (operation === "task-create" && key === "--task")) &&
+              value &&
+              !value.startsWith("--") &&
+              !flags.has(key),
+            "USAGE",
+            usage,
+          );
+          flags.set(key, value);
+        }
+        const root = flags.get("--root");
+        requireCondition(
+          root && (operation !== "task-create" || flags.has("--task")),
+          "USAGE",
+          usage,
+        );
+        return { root, task: flags.get("--task") ?? "" };
+      },
+      catch: () => new ContractError("USAGE", usage),
+    });
+    const result =
+      operation === "workspace-init"
+        ? yield* initializeWorkspace(values.root)
+        : operation === "task-create"
+          ? yield* createTask(values.root, values.task)
+          : yield* inventoryWorkspace(values.root);
+    yield* output(JSON.stringify(result, null, 2) + "\n");
     return;
   }
   const options = yield* Effect.try({
@@ -347,9 +410,11 @@ try {
     process.exitCode = interruptionCode;
     await reportFailure(
       "INTERRUPTED",
-      activeOperation === "plan" || activeOperation === "review"
-        ? "Reviewer interrupted; an in-flight delivery may already be committed"
-        : "Operation interrupted; no delivery was admitted",
+      activeOperation === "workspace"
+        ? "Workspace operation interrupted; initialization or task creation may have written metadata; nothing was deleted"
+        : activeOperation === "plan" || activeOperation === "review"
+          ? "Reviewer interrupted; an in-flight delivery may already be committed"
+          : "Operation interrupted; no delivery was admitted",
     );
   } else if (Exit.isFailure(exit)) {
     process.exitCode = 1;

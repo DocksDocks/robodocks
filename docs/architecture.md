@@ -231,3 +231,24 @@ context, even though collection includes before sides to describe changes.
 
 The legacy `plan` command remains a manual fixture interface with caller-provided
 context, not an alternative authenticated review path. No command publishes.
+
+## Task workspace inventory
+
+`src/workspace.ts` is independent of the review ledger. `workspace-init` creates
+a new dedicated root and `.robodocks-root.json` with schema version 1, kind
+`robodocks-task-root` and a random UUID `rootId`. `task-create` exclusively
+creates a task child, `.robodocks-task.json` with kind `robodocks-task`, and
+`task.json`. Task metadata binds the generated root ID and validated task ID;
+markers are operational ownership labels, not authenticity proofs. The manifest
+schema is strict, including nested checkpoint fields. Lifecycle and evidence
+claims are edited explicitly by the operator; no background state transitions
+or process leases are implemented.
+
+Inventory reads root children deterministically and rejects unknown/invalid
+ownership rather than adopting directories. It inspects filesystem metadata,
+not payload contents, and never invokes Git or the network. Limits are 100 tasks,
+1,000 entries per task, depth 8, and 8,192 bytes per metadata file. A limit breach
+blocks a task or fails the inventory; partial scans never establish completeness.
+All tasks retain four unverified evidence blockers even when no other blocker
+is found. `needs-verification` is not deletion eligibility. The command has no
+retention decision, deletion implementation or dependency on a backup feature.
