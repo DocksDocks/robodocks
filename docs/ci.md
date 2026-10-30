@@ -71,3 +71,20 @@ interoperability is not claimed by these synthetic tests.
 The workflow also runs `bun run test:package`. See [packaging](packaging.md) for
 the exact tarball contents, production-only clean installation, CLI smoke and
 platform limits. This is an artifact test, not a registry release.
+
+## Review gate for assistant-created pull requests
+
+Open assistant-created changes as a draft PR, then review the full published
+diff at its exact head commit before asking the user to approve it. Fix confirmed
+errors within the authorized scope, review the resulting delta, and verify CI
+for that updated exact head. Repeat this review-and-fix cycle until confirmed findings are fixed, or any
+remaining finding is explicitly disclosed for the user’s decision, and the
+required checks pass. If a change needs new
+authorization or verification is blocked, report that boundary rather than
+requesting approval as though the gate passed.
+
+Only after this gate passes should the assistant request the user's approval.
+A passing review is not a formal GitHub approval, merge permission, or deployment
+authorization; those actions still require the applicable explicit user approval.
+This is the project's contributor workflow, not a claim that GitHub branch
+protection or a required approval rule has been configured.

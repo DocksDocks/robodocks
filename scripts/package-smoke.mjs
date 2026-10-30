@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import {
+  closeSync,
   existsSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -111,6 +113,29 @@ try {
   const bin = join(temporary, "node_modules", ".bin", "robodocks");
   assert.equal(run(bin, ["--version"]).stdout.trim(), metadata.version);
   assert.match(run(bin, ["--help"]).stdout, /Usage:/);
+  // Linux artifact target: /dev/full deterministically rejects every write.
+  // Exercise the installed executable, not a mocked output helper.
+  const full = openSync("/dev/full", "w");
+  try {
+    for (const flag of ["--version", "--help"]) {
+      const failedOutput = spawnSync(bin, [flag], {
+        cwd: temporary,
+        env,
+        encoding: "utf8",
+        timeout: 10_000,
+        stdio: ["ignore", full, "pipe"],
+      });
+      assert.equal(failedOutput.error, undefined);
+      assert.equal(failedOutput.status, 1);
+      assert.deepEqual(JSON.parse(failedOutput.stderr), {
+        error: "OUTPUT",
+        message: "Could not write output; no delivery was admitted",
+      });
+    }
+  } finally {
+    closeSync(full);
+  }
+
   for (const command of ["plan", "inspect", "collect", "review"]) {
     assert.match(run(bin, [command, "--help"]).stdout, /Usage:/);
   }

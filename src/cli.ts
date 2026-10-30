@@ -1,3 +1,4 @@
+import { version } from "../package.json";
 import { reviewGitHubSource } from "./agent-review.ts";
 import { randomUUID } from "node:crypto";
 import { collectGitHubSource } from "./github-source.ts";
@@ -243,6 +244,10 @@ function readJson(path: string): Effect.Effect<unknown, ContractError> {
 
 const main = Effect.gen(function* () {
   const args = process.argv.slice(2);
+  if (args.length === 1 && args[0] === "--version") {
+    yield* output(version + "\n");
+    return;
+  }
   if (
     (args.length === 1 && args[0] === "--help") ||
     (args.length === 2 &&
