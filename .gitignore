@@ -10,3 +10,7 @@ local/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+
+# Private incomplete recovery generations and rollback journals
+.robodocks-recovery-*/
+*.sqlite-journal

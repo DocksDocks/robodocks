@@ -13,6 +13,7 @@ import type { Writable } from "node:stream";
 import { Effect, Exit } from "effect";
 import { withReviewer } from "./reviewer.ts";
 import { inspectLedger } from "./inspection.ts";
+import { backupLedger, restoreLedger } from "./recovery.ts";
 import { ContractError, requireCondition } from "./validation.ts";
 
 const usage =
@@ -20,6 +21,8 @@ const usage =
   "       robodocks inspect --policy <policy.json> --database <existing-ledger.sqlite> --repository <owner/repo> [--status proposed|published|closed|all] [--limit 1..100] [--cursor <cursor>]\n" +
   "       robodocks collect --policy <policy.json> --repository <owner/repo> --pull-request <number> [--attempt <id>]\n" +
   "       robodocks review --policy <policy.json> --input <agent-response.json> --database <ledger.sqlite> --repository <owner/repo> --pull-request <number> --attempt <id>\n" +
+  "       robodocks backup --policy <policy.json> --database <existing-ledger.sqlite> --output <new-snapshot.sqlite>\n" +
+  "       robodocks restore --policy <policy.json> --input <snapshot.sqlite> --database <new-ledger.sqlite>\n" +
   "       robodocks workspace-init --root <new-absolute-path/robodocks-tasks>\n" +
   "       robodocks task-create --root <absolute-path/robodocks-tasks> --task <slug>\n" +
   "       robodocks workspace-inventory --root <absolute-path/robodocks-tasks>\n" +
@@ -27,39 +30,59 @@ const usage =
   "The legacy flags-only form is an alias for plan. Inspection defaults to proposed and limit 20.";
 
 let activeOperation:
-  "plan" | "inspect" | "collect" | "review" | "workspace" | undefined;
+  | "plan"
+  | "inspect"
+  | "collect"
+  | "review"
+  | "backup"
+  | "restore"
+  | "workspace"
+  | undefined;
 
 function parseArguments(args: string[]) {
   const operation =
-    args[0] === "review"
-      ? "review"
-      : args[0] === "collect"
-        ? "collect"
-        : args[0] === "inspect"
-          ? "inspect"
-          : "plan";
-  const flags = ["plan", "inspect", "collect", "review"].includes(args[0] ?? "")
+    args[0] === "backup"
+      ? "backup"
+      : args[0] === "restore"
+        ? "restore"
+        : args[0] === "review"
+          ? "review"
+          : args[0] === "collect"
+            ? "collect"
+            : args[0] === "inspect"
+              ? "inspect"
+              : "plan";
+  const flags = [
+    "plan",
+    "inspect",
+    "collect",
+    "review",
+    "backup",
+    "restore",
+  ].includes(args[0] ?? "")
     ? args.slice(1)
     : args;
   const allowed =
-    operation === "plan"
-      ? ["--policy", "--input", "--database"]
-      : operation === "collect" || operation === "review"
-        ? [
-            "--policy",
-            "--repository",
-            "--pull-request",
-            "--attempt",
-            ...(operation === "review" ? ["--input", "--database"] : []),
-          ]
-        : [
-            "--policy",
-            "--database",
-            "--repository",
-            "--status",
-            "--limit",
-            "--cursor",
-          ];
+    operation === "backup"
+      ? ["--policy", "--database", "--output"]
+      : operation === "plan" || operation === "restore"
+        ? ["--policy", "--input", "--database"]
+        : operation === "collect" || operation === "review"
+          ? [
+              "--policy",
+              "--repository",
+              "--pull-request",
+              "--attempt",
+              ...(operation === "review" ? ["--input", "--database"] : []),
+            ]
+          : [
+              "--policy",
+              "--database",
+              "--repository",
+              "--status",
+              "--limit",
+              "--cursor",
+            ];
   const values = new Map<string, string>();
   for (let index = 0; index < flags.length; index += 2) {
     const key = flags[index];
@@ -113,7 +136,12 @@ function parseArguments(args: string[]) {
   }
   const databasePath = values.get("--database");
   requireCondition(databasePath, "USAGE", usage);
-  if (operation === "plan") {
+  if (operation === "backup") {
+    const outputPath = values.get("--output");
+    requireCondition(outputPath, "USAGE", usage);
+    return { operation, policyPath, databasePath, outputPath } as const;
+  }
+  if (operation === "plan" || operation === "restore") {
     const inputPath = values.get("--input");
     requireCondition(inputPath, "USAGE", usage);
     return { operation, policyPath, databasePath, inputPath } as const;
@@ -186,9 +214,11 @@ function output(text: string) {
           ? "Could not write workspace output; initialization or task creation may have written metadata; nothing was deleted"
           : activeOperation === "plan" || activeOperation === "review"
             ? "Could not write review output; the delivery may already be committed"
-            : activeOperation === "inspect"
-              ? "Could not write inspection output; no delivery was admitted"
-              : "Could not write output; no delivery was admitted",
+            : activeOperation === "backup" || activeOperation === "restore"
+              ? "Could not write recovery output; the destination may already be complete; inspect it before retrying with a new path"
+              : activeOperation === "inspect"
+                ? "Could not write inspection output; no delivery was admitted"
+                : "Could not write output; no delivery was admitted",
       ),
   });
 }
@@ -267,6 +297,8 @@ const main = Effect.gen(function* () {
         "inspect",
         "collect",
         "review",
+        "backup",
+        "restore",
         "workspace-init",
         "task-create",
         "workspace-inventory",
@@ -327,45 +359,53 @@ const main = Effect.gen(function* () {
   activeOperation = options.operation;
   const policy = yield* readJson(options.policyPath);
   const result =
-    options.operation === "review"
-      ? yield* reviewGitHubSource(
-          policy,
-          options.request,
-          yield* readJson(options.inputPath),
-          options.databasePath,
-        )
-      : options.operation === "collect"
-        ? yield* collectGitHubSource(policy, options.request)
-        : options.operation === "inspect"
-          ? yield* inspectLedger(policy, options.databasePath, options.query)
-          : yield* Effect.gen(function* () {
-              const input = yield* readJson(options.inputPath);
-              return yield* withReviewer(
-                policy,
-                options.databasePath,
-                (reviewer) =>
-                  Effect.gen(function* () {
-                    const plan = yield* reviewer.plan(input);
-                    return {
-                      schemaVersion: 1,
-                      operation: "plan",
-                      plan: {
-                        ...plan,
-                        intents: plan.intents.map(
-                          ({ id, findingId, kind, dryRun, status }) => ({
-                            id,
-                            findingId,
-                            kind,
-                            dryRun,
-                            status,
-                          }),
-                        ),
-                      },
-                      storage: reviewer.storage,
-                    };
-                  }),
-              );
-            });
+    options.operation === "backup"
+      ? yield* backupLedger(policy, options.databasePath, options.outputPath)
+      : options.operation === "restore"
+        ? yield* restoreLedger(policy, options.inputPath, options.databasePath)
+        : options.operation === "review"
+          ? yield* reviewGitHubSource(
+              policy,
+              options.request,
+              yield* readJson(options.inputPath),
+              options.databasePath,
+            )
+          : options.operation === "collect"
+            ? yield* collectGitHubSource(policy, options.request)
+            : options.operation === "inspect"
+              ? yield* inspectLedger(
+                  policy,
+                  options.databasePath,
+                  options.query,
+                )
+              : yield* Effect.gen(function* () {
+                  const input = yield* readJson(options.inputPath);
+                  return yield* withReviewer(
+                    policy,
+                    options.databasePath,
+                    (reviewer) =>
+                      Effect.gen(function* () {
+                        const plan = yield* reviewer.plan(input);
+                        return {
+                          schemaVersion: 1,
+                          operation: "plan",
+                          plan: {
+                            ...plan,
+                            intents: plan.intents.map(
+                              ({ id, findingId, kind, dryRun, status }) => ({
+                                id,
+                                findingId,
+                                kind,
+                                dryRun,
+                                status,
+                              }),
+                            ),
+                          },
+                          storage: reviewer.storage,
+                        };
+                      }),
+                  );
+                });
   if (
     ("acquisition" in result && result.acquisition.status !== "complete") ||
     ("review" in result && result.review.status === "incomplete")
@@ -414,7 +454,9 @@ try {
         ? "Workspace operation interrupted; initialization or task creation may have written metadata; nothing was deleted"
         : activeOperation === "plan" || activeOperation === "review"
           ? "Reviewer interrupted; an in-flight delivery may already be committed"
-          : "Operation interrupted; no delivery was admitted",
+          : activeOperation === "backup" || activeOperation === "restore"
+            ? "Recovery interrupted; the destination may already be complete; inspect it before retrying with a new path"
+            : "Operation interrupted; no delivery was admitted",
     );
   } else if (Exit.isFailure(exit)) {
     process.exitCode = 1;

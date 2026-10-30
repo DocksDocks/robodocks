@@ -186,6 +186,53 @@ anchors, stale snapshot IDs, cross-attempt responses and malformed evidence fail
 closed. An explicit incomplete response or acquisition failure is never labeled
 as a successful empty review. Existing pending intents are not refreshed.
 
+## Local recovery boundaries
+
+Backup and restore require explicit operator-selected paths on a trusted local
+filesystem. A snapshot includes all repositories and all retained evidence in
+the source ledger, not the allowlist-filtered diagnostic snapshot. Every stored
+repository must be authorized by the supplied policy or the entire operation
+fails. Current admission confidence thresholds do not invalidate earlier
+accepted records. Recovery validates intrinsic stored identities and lifecycle
+relationships, not the factual correctness of findings or authenticity of
+historical GitHub source.
+
+Destinations must be new; recovery does not replace, merge into, or repair an
+existing ledger. Never manually copy only a live WAL database's main file.
+SQLite-coordinated snapshots include committed WAL content. Keep snapshot files
+and their directories private, like the original ledger. A digest is content
+identity, not a signature, encryption, provenance proof or permission to import
+an untrusted database. Recovery is intended for operator-controlled ledgers,
+not arbitrary hostile SQLite files.
+
+A recovery OUTPUT or late INTERRUPTED result can follow completed destination
+creation. Inspect the destination before choosing a fresh path for retry; the
+error is not permission to delete an existing file. Restart inspect pagination
+without any pre-restore cursor. Restored replay protection covers only deliveries
+present at snapshot time; later deliveries and acknowledgements are absent.
+Do not infer that an absent acknowledgement means no remote write happened.
+Future publishing still requires remote uncertain-write reconciliation and fresh
+head checks under separate authority.
+
+No backup schedule, retention, encryption, remote storage, deployment integration
+or real host-replacement durability is provided. A second file on an ephemeral
+host is not independent durable storage. A fresh-environment lifecycle drill and
+operator-managed persistence remain required before claiming that the actual
+agent environment can be safely replaced.
+
+Recovery rejects symlink path components and hard-linked source files. The local
+filesystem and its parent directories must remain operator-controlled throughout
+the operation; this is not protection against a concurrent privileged process
+replacing directory entries. A crash can leave a private `.robodocks-recovery-*`
+staging directory. If interruption occurs after no-replace promotion but before
+staging cleanup, the destination can still have a second hard link and will be
+rejected as a recovery source. Inspect and reconcile these operator-owned files
+manually; recovery never deletes an existing destination or scavenges old stages.
+Equivalent hand-created or modified schemas are conservatively rejected: only
+the canonical v1 schema is supported. Checks bound each raw finding payload to
+256 KiB before JSON decoding; observations and SHA-256 input are streamed rather
+than loading an entire 512 MiB ledger into application memory.
+
 ## Workspace preview boundary
 
 Workspace roots must be newly created dedicated `robodocks-tasks` directories
