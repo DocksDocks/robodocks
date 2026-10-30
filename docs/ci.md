@@ -65,3 +65,9 @@ model. Fixtures cover all supported change types, merge-base provenance,
 identity rechecks, exact BOM/CRLF preservation, caps/omissions, blob integrity,
 consumer completeness and independent attempt/content IDs. Live GitHub API
 interoperability is not claimed by these synthetic tests.
+
+## Installed artifact gate
+
+The workflow also runs `bun run test:package`. See [packaging](packaging.md) for
+the exact tarball contents, production-only clean installation, CLI smoke and
+platform limits. This is an artifact test, not a registry release.

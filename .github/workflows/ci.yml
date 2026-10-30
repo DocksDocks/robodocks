@@ -35,3 +35,5 @@ jobs:
         run: bun run check
       - name: Run synthetic dry-run demo
         run: bun run demo
+      - name: Verify packed CLI in a clean production-only installation
+        run: bun run test:package

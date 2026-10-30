@@ -192,3 +192,42 @@ transport is server-side fetch; tests inject deterministic Responses, never
 network hosts. Endpoint construction permits only fixed GitHub API GET paths,
 not arbitrary URL/ref/query inputs. Returned links are ignored. No credential,
 redirect, retry, publisher, webhook or generic provider framework is introduced.
+
+## Trusted external-agent admission
+
+`robodocks collect` remains a source-only operation: `review.status` is `not-run`.
+An external agent can inspect that snapshot and return an `AgentReviewSchema`
+response (defined in `src/agent-review.ts`). The operator then runs `robodocks
+review` with an explicit repository, PR, attempt ID, policy and database.
+
+The response contains a schema version, the collected snapshot ID and attempt ID,
+fixed scope `changed-files-head-v1`, explicit `complete` or `incomplete` status,
+and findings shaped as `{ "side": "after", "finding": <FindingSchema> }`.
+It cannot supply files, policy, current head, database, delivery ID or tools.
+The tool decodes and owns this response before asynchronous work.
+
+The review adapter performs a new bounded GitHub collection. Its final PR and
+repository identity checks happen after source acquisition, hence after the
+external agent produced the response. The new complete snapshot must match the
+response's snapshot hash, including repository/PR numeric IDs, head, base tip,
+merge base and complete collected file contents. A rehashed fabricated local
+snapshot cannot establish authenticity. Attempt IDs are operator-selected manual
+identifiers, not cryptographic capabilities or GitHub event IDs; the response
+must echo the operator's selected attempt.
+
+Only fresh head-side contents are translated into the existing core context.
+Before-side anchors are rejected at decoding; deleted paths and old rename paths
+are absent from the context. Evidence and target validation still run in the core.
+The database schema remains v1 and stored findings have head-side semantics.
+Delivery identity binds target, attempt, snapshot and review scope; an identical
+retry is deduplicated, while changed findings for that delivery conflict.
+
+An incomplete acquisition returns `review.status: not-run`, an explicit incomplete
+agent response returns `incomplete`, and neither opens the ledger. A complete
+empty response is recorded as `no-confirmed-findings`; a complete response with
+accepted findings is `findings-proposed`. Neither is a whole-PR approval or proof
+of correctness. The scope excludes discussions, checks and unchanged dependency
+context, even though collection includes before sides to describe changes.
+
+The legacy `plan` command remains a manual fixture interface with caller-provided
+context, not an alternative authenticated review path. No command publishes.
