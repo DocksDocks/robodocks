@@ -21,10 +21,19 @@ function fixture() {
   const parent = mkdtempSync(join(tmpdir(), "robodocks-workspace-cli-"));
   onTestFinished(() => rmSync(parent, { recursive: true, force: true }));
   const root = join(parent, "robodocks-tasks");
-  const run = (args: string[], extraEnv: Record<string, string> = {}) =>
+  const run = (
+    args: string[],
+    extraEnv: Record<string, string | undefined> = {},
+  ) =>
     spawnSync(process.execPath, ["src/cli.ts", ...args], {
       cwd: checkout,
-      env: { ...process.env, ...extraEnv },
+      // Bun otherwise creates $HOME/.bun/install/cache while loading imports,
+      // before the CLI can reject HOME. Keep runtime writes out of this assertion.
+      env: {
+        ...process.env,
+        ...extraEnv,
+        BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
+      },
       encoding: "utf8",
       timeout: 10_000,
     });
@@ -77,10 +86,21 @@ test("workspace CLI rejects broad roots including an isolated HOME", () => {
     ["workspace-inventory", "--root", root, "--delete"],
     ["workspace-init", "--root", root, "--database", "private.sqlite"],
   ]) {
-    const result = run(args, { HOME: root });
+    const result = run(args, { HOME: root, XDG_CACHE_HOME: undefined });
     assert.equal(result.status, 1, result.stdout);
     assert.equal(result.stdout, "");
     assert.doesNotMatch(result.stderr, /at .*\.ts:/);
+    const error = JSON.parse(result.stderr) as {
+      error: string;
+      message: string;
+    };
+    assert.equal(
+      error.error,
+      args[0] === "workspace-init" && args.length === 3 ? "WORKSPACE" : "USAGE",
+    );
+    if (args[0] === "workspace-init" && args.length === 3 && args[2] === root) {
+      assert.match(error.message, /Home roots and protected storage paths/);
+    }
   }
   assert.deepEqual(readdirSync(parent), []);
 });
@@ -112,4 +132,26 @@ test("workspace output failure reports possible metadata creation without deleti
   } finally {
     closeSync(full);
   }
+});
+
+test("HOME guard rejects inventory of an otherwise valid owned root", () => {
+  const { root, run } = fixture();
+  const initialized = run(["workspace-init", "--root", root]);
+  assert.equal(initialized.status, 0, initialized.stderr);
+  const marker = join(root, ".robodocks-root.json");
+  const before = readFileSync(marker);
+  const rejected = run(["workspace-inventory", "--root", root], {
+    HOME: root,
+    XDG_CACHE_HOME: undefined,
+  });
+  assert.equal(rejected.status, 1);
+  assert.equal(rejected.stdout, "");
+  const error = JSON.parse(rejected.stderr) as {
+    error: string;
+    message: string;
+  };
+  assert.equal(error.error, "WORKSPACE");
+  assert.match(error.message, /Home roots and protected storage paths/);
+  assert.deepEqual(readdirSync(root), [".robodocks-root.json"]);
+  assert.deepEqual(readFileSync(marker), before);
 });
