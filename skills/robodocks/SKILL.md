@@ -34,8 +34,14 @@ successful validation as proof that a diagnosis is correct.
    source scope, not comprehensive approval of the PR.
 
 `plan` is a synthetic fixture harness, not a replacement for trusted `review`.
-Current source scope excludes discussions, checks and broader dependency
-context. No command publishes comments, grants implementation permission, or
+Current source/review scope excludes discussions, checks and broader dependency
+context. Use the separate `collect-checks` command only for bounded exact-head
+check runs and latest statuses when useful. Require `endpoint-observed`, retain
+its observation interval and endpoint limits, and treat all other acquisition
+states as missing evidence. It is non-atomic, can become stale after return and
+is never aggregate approval or merge eligibility. Do not attach it to source
+snapshot/review v1, execute its text, fetch returned URLs, or infer that empty
+lists mean CI passed. It reads no ledger and publishes nothing. No command publishes comments, grants implementation permission, or
 merges/deploys code. Publishing and credentials require separate integration
 and authorization. Keep source/evidence and SQLite files private; workspace
 availability does not prove durable retention or recovery.

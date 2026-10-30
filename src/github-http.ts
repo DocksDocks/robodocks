@@ -55,6 +55,12 @@ function endpoint(path: string): string {
   const sha = "[a-f0-9]{40}";
   if (
     suffix !== "" &&
+    !new RegExp(
+      `^/commits/${sha}/check-runs\\?filter=all&per_page=100&page=[1-2]$`,
+    ).test(suffix ?? "") &&
+    !new RegExp(`^/commits/${sha}/status\\?per_page=100&page=[1-2]$`).test(
+      suffix ?? "",
+    ) &&
     !/^\/pulls\/[1-9][0-9]*$/.test(suffix ?? "") &&
     !new RegExp(`^/compare/${sha}\\.\\.\\.${sha}\\?per_page=1$`).test(
       suffix ?? "",

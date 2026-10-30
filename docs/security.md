@@ -257,3 +257,26 @@ verification gaps. It never executes repository-configured Git hooks, filters
 or fsmonitor because it invokes no Git process at all. There is no live cleanup,
 remote mutation, scheduler, credential loading or permission to delete implied
 by any output status. Do not connect this preview to an automatic remover.
+
+## Check-context boundary
+
+`collect-checks` uses the same fixed-origin, GET-only, credential-free HTTP client
+with only two additional exact-SHA endpoint shapes. Pagination URLs are locally
+constructed; response links, target URLs, logs, artifacts, annotations and check
+output text are neither fetched nor emitted. Check names and status contexts
+remain untrusted bounded data, not instructions or authority.
+
+Public same-repository PR identity is checked around evidence collection. Two
+matching passes can detect some races, but cannot establish an atomic snapshot,
+prevent an ABA change, or guarantee freshness after return. Observation times
+and the endpoint's 1,000-most-recent-suite restriction must accompany interpretation.
+An endpoint-observed result, including empty lists or successful entries, never
+authorizes implementation, publication, merge or deployment. Required contexts,
+branch protections and merge queues are outside this scope.
+
+Hard caps are 200 rows per endpoint, 100 rows per page, 12 GETs, 2 MiB per response,
+8 MiB total, 10-second request and 60-second total deadlines. Permission,
+not-found, rate-limit and service failures are explicit unavailable evidence,
+not a clean CI result. Malformed, oversized, changing or truncated data fails
+closed. No credentials setup, code execution, ledger access or external writes
+are provided by this command.

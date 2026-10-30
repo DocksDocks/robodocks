@@ -203,3 +203,17 @@ optimization. Disabling isolation, changing to `bun test`, or adopting
 would change test semantics and is not part of this tuning. The application
 state transitions and bounded admission model are unchanged; the existing
 strict, package, property and model gates remain required.
+
+## Exact-head context verification
+
+Check-context tests use injected synthetic HTTP responses and test-only CLI
+preloads, never live repository requests or credentials. They exercise bounded
+pagination, identity/head races, duplicate and changing observations, malformed
+or oversized evidence, unavailable APIs, strict CLI scope and read-only requests.
+The installed artifact checks discovery and rejects a database argument without
+creating a ledger. Empty observed endpoints are not interpreted as passing CI.
+
+The admission/replay model's state transitions are unchanged: this independent
+read-only command never opens a ledger. No formal proof of remote snapshot
+atomicity or freshness is claimed. Full strict gates, tests, demo and package
+smoke remain required, followed by exact-published-head hosted CI verification.
