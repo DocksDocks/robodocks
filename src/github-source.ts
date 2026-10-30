@@ -14,7 +14,12 @@ import {
   SourceError,
   withGitHubHttp,
 } from "./github-http.ts";
-import type { GitHubHttp, GitHubTransport, HttpLimits } from "./github-http.ts";
+import type {
+  GitHubHttp,
+  GitHubTransport,
+  HttpLimits,
+  HttpStats,
+} from "./github-http.ts";
 
 const Id = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
@@ -376,6 +381,8 @@ export function collectGitHubSource(
   options: {
     readonly transport?: GitHubTransport;
     readonly httpLimits?: Partial<HttpLimits>;
+    /** @internal Diagnostics for trusted sequential orchestration. */
+    readonly onStats?: (stats: HttpStats) => void;
   } = {},
 ): Effect.Effect<CollectionResult, ContractError | SourceError> {
   return Effect.gen(function* () {
@@ -401,6 +408,7 @@ export function collectGitHubSource(
           options.transport ?? defaultGitHubTransport,
           signal,
           options.httpLimits,
+          options.onStats,
         ),
       catch: (error) =>
         error instanceof SourceError
@@ -415,6 +423,7 @@ async function collect(
   transport: GitHubTransport,
   signal: AbortSignal,
   limits?: Partial<HttpLimits>,
+  onStats?: (stats: HttpStats) => void,
 ): Promise<CollectionResult> {
   let snapshot: SourceSnapshot | null = null;
   const files: Array<typeof FileSchema.Type> = [];
@@ -641,5 +650,6 @@ async function collect(
       };
     },
     limits,
+    onStats,
   );
 }

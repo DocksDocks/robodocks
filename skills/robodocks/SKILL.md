@@ -61,3 +61,11 @@ This skill ships at `skills/robodocks/SKILL.md` inside the installed package.
 Explicitly point your agent host at this file, or install a copy using that
 host's documented skill mechanism. Package installation does not edit global
 agent configuration. Keep the skill and CLI version together.
+
+Use `collect-context` when all three evidence categories are wanted in one
+invocation. Require `context-observed` and a non-null bundle; all components are
+freshly collected checks → discussion → source with matching identities/attempt.
+Retain component intervals/omissions and source snapshot ID. This non-atomic
+bundle is neither full context nor current approval, and it does not change
+source-only `review` admission. A failure stops later stages and yields null
+bundle; do not fill missing evidence with fabricated component JSON.

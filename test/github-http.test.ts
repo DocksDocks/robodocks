@@ -495,3 +495,20 @@ test("check context allowlist accepts only exact SHA fixed queries and bounded p
       "HTTP_ENDPOINT",
     );
 });
+
+test("internal stats observer is immutable and cannot mask successful HTTP cleanup", async () => {
+  let observed: unknown;
+  const result = await withGitHubHttp(
+    async () => Response.json({ ok: true }),
+    new AbortController().signal,
+    (http) => http.get("/repos/example-owner/example-project"),
+    {},
+    (stats) => {
+      observed = stats;
+      assert(Object.isFrozen(stats));
+      throw new Error("observer failure");
+    },
+  );
+  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(observed, { requests: 1, responseBytes: 11 });
+});

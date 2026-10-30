@@ -31,6 +31,11 @@ export const HTTP_LIMITS: Readonly<HttpLimits> = Object.freeze({
   totalTimeoutMs: 60_000,
 });
 
+export type HttpStats = {
+  readonly requests: number;
+  readonly responseBytes: number;
+};
+
 export interface GitHubHttp {
   get(path: string): Promise<unknown>;
   readonly stats: { readonly requests: number; readonly responseBytes: number };
@@ -245,6 +250,7 @@ export async function withGitHubHttp<A>(
   signal: AbortSignal,
   use: (http: GitHubHttp) => Promise<A>,
   overrides: Partial<HttpLimits> = {},
+  onStats?: (stats: HttpStats) => void,
 ): Promise<A> {
   const limits = boundedLimits(overrides);
   const scope = new AbortController();
@@ -354,5 +360,11 @@ export async function withGitHubHttp<A>(
     scope.abort(
       new SourceError("HTTP_SCOPE", "Source acquisition scope is closed"),
     );
+    // Diagnostics never mask the primary result or prevent scope cleanup.
+    try {
+      onStats?.(Object.freeze({ ...stats }));
+    } catch {
+      /* internal observer */
+    }
   }
 }
