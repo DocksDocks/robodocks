@@ -310,3 +310,22 @@ mutation are introduced. Returned source and discussion remain untrusted data.
 Identity agreement and source's final recheck do not establish a simultaneous
 snapshot, current approval or a clean review. Earlier evidence may change during
 the overall interval, and all evidence may change after it.
+
+## Publication preview boundary
+
+Preview reads one explicitly selected pending intent from an existing ledger,
+checks its stored observation integrity and current policy, and reacquires trusted
+combined context. It rejects stale targets/evidence and selected-record changes
+during acquisition. It neither holds a transaction over HTTP nor writes ledger
+state. The inspection reader's WAL/SHM coordination-sidecar caveat also applies;
+this is not zero filesystem activity or an immutable read against a live ledger.
+
+Only deterministic inert text is rendered for a PR conversation comment. Rendering
+prevents untrusted Markdown/HTML/mentions from escaping the text representation
+and bounds final UTF-8 bytes, but does not detect secrets, establish factual
+correctness or authorize publication. No inline placement, sender, write endpoint,
+credentials or ready-to-send flag exists. Copied intent markers are unverified
+observations, never authentication, acknowledgement or semantic deduplication.
+Every result preserves explicit missing identity/credentials, uncertain-write
+reconciliation and durable-host/recovery blockers. Fresh observations remain
+non-atomic and cannot prevent a remote or local change after the final check.

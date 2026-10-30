@@ -48,3 +48,8 @@ are deleted on success; failed fixtures are retained with their path for
 investigation. No registry publication, bot authentication, live comment
 posting, environment-replacement recovery or cross-platform binary support is
 implied by a passing package smoke.
+
+The installed smoke also exercises `preview-publication` against a synthetic
+pending ledger intent and fresh synthetic combined context. It verifies
+conversation-draft output, deterministic repetition, no ledger-byte changes, and
+rejection of write/import flags. This is not a real publication or bot setup test.

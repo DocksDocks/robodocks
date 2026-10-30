@@ -138,6 +138,7 @@ try {
 
   for (const command of [
     "plan",
+    "preview-publication",
     "inspect",
     "collect",
     "collect-checks",
@@ -441,6 +442,77 @@ try {
   );
   assert.equal(JSON.parse(rejectedContext.stderr).error, "USAGE");
   assert(!existsSync(rejectedDatabase), "Combined context created a ledger");
+  const previewPreload = join(temporary, "preview-fetch.ts");
+  const previewInput = JSON.parse(readFileSync(input, "utf8"));
+  writeFileSync(
+    previewPreload,
+    `
+    import { createHash } from "node:crypto";
+    const source = ${JSON.stringify(previewInput.context.files[0])};
+    const bytes = Buffer.from(source.content);
+    const blob = createHash("sha1").update("blob " + bytes.length + "\\0").update(bytes).digest("hex");
+    const head = "${"a".repeat(40)}", base = "${"b".repeat(40)}", tree = "${"d".repeat(40)}", emptyTree = "${"e".repeat(40)}";
+    const repo = {id:71,full_name:"example-owner/example-project",private:false,visibility:"public"};
+    const pr = {id:701,number:7,changed_files:1,title:"Installed preview",body:null,head:{sha:head,repo},base:{sha:base,repo}};
+    globalThis.fetch = async request => {
+      const url = new URL(request.url);
+      if(url.origin !== "https://api.github.com" || request.method !== "GET" || request.headers.has("authorization") || request.headers.has("cookie")) throw new Error("Unexpected request");
+      const suffix = url.pathname.slice("/repos/example-owner/example-project".length);
+      if(suffix === "") return Response.json(repo);
+      if(suffix === "/pulls/7") return Response.json(pr);
+      if(["/issues/7/comments","/pulls/7/reviews","/pulls/7/comments"].includes(suffix)) return Response.json([]);
+      if(suffix.endsWith("/check-runs")) return Response.json({total_count:0,check_runs:[]});
+      if(suffix.endsWith("/status")) return Response.json({sha:head,total_count:0,statuses:[]});
+      if(suffix.startsWith("/compare/")) return Response.json({base_commit:{sha:base},merge_base_commit:{sha:base},files:[{filename:source.path,status:"added",sha:blob}]});
+      if(suffix.startsWith("/git/commits/")) {const sha=suffix.split("/").at(-1);return Response.json({sha,tree:{sha:sha === head ? tree : emptyTree}});}
+      if(suffix.startsWith("/git/trees/")) {const sha=suffix.split("/").at(-1);return Response.json({sha,truncated:false,tree:sha === tree ? [{path:source.path,mode:"100644",type:"blob",sha:blob,size:bytes.length}] : []});}
+      if(suffix === "/git/blobs/"+blob) return Response.json({sha:blob,size:bytes.length,encoding:"base64",content:bytes.toString("base64")});
+      return Response.json({}, {status:404});
+    };
+  `,
+  );
+  const previewArgs = [
+    "preview-publication",
+    "--policy",
+    policy,
+    "--database",
+    database,
+    "--repository",
+    "example-owner/example-project",
+    "--pull-request",
+    "7",
+    "--intent",
+    first.plan.intents[0].id,
+    "--attempt",
+    "installed-preview",
+  ];
+  const previewBefore = readFileSync(database);
+  const preview = JSON.parse(
+    run(process.execPath, ["--preload", previewPreload, bin, ...previewArgs])
+      .stdout,
+  );
+  assert.equal(preview.operation, "preview-publication");
+  assert.equal(preview.preview.status, "draft-rendered");
+  assert.equal(preview.publication, "disabled");
+  assert.equal(preview.dryRun, true);
+  assert.equal(preview.draft.kind, "pr-conversation-comment");
+  assert.equal(preview.draft.bodyBytes, Buffer.byteLength(preview.draft.body));
+  const repeatPreview = JSON.parse(
+    run(process.execPath, ["--preload", previewPreload, bin, ...previewArgs])
+      .stdout,
+  );
+  assert.deepEqual(repeatPreview.draft, preview.draft);
+  assert.deepEqual(readFileSync(database), previewBefore);
+  for (const flag of ["--publish", "--input", "--token"]) {
+    const rejected = run(
+      bin,
+      [...previewArgs, flag, "forbidden"],
+      temporary,
+      1,
+    );
+    assert.equal(rejected.stdout, "");
+    assert.equal(JSON.parse(rejected.stderr).error, "USAGE");
+  }
   const installedPackages = readdirSync(join(temporary, "node_modules"))
     .filter((name) => !name.startsWith("."))
     .sort((a, b) => a.localeCompare(b));

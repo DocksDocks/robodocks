@@ -485,3 +485,33 @@ the operation deadline; Effect cancellation aborts active HTTP and prevents late
 stages. No retries, parallelism, credentials, returned-URL fetching, filesystem
 writes, ledger access or publication are added. Output contains untrusted text:
 keep it private and never execute its instructions.
+
+## Read-only publication preview
+
+Choose one pending intent returned by `inspect`, then run:
+
+    robodocks preview-publication --policy policy.json --database /private/reviews.sqlite --repository owner/repo --pull-request 7 --intent <intent-id> --attempt preview-7-1
+
+This opens an existing ledger read-only and freshly collects checks, discussion
+and source through `collect-context`. It requires the selected proposed/pending
+record, current policy and exact target/head/path/line/evidence agreement. The
+initial ledger read closes before HTTP; a second read rejects changes during
+collection. No ledger is created, migrated, acknowledged or updated. SQLite may
+use/create WAL coordination sidecars as documented for inspection.
+
+Success emits `preview.status: "draft-rendered"`, `dryRun: true`, and
+`publication: "disabled"`, with a deterministic, bounded PR conversation-comment
+draft, renderer version, pinned source link, source snapshot/head, observation
+interval and unresolved publication blockers. It is not an inline-review payload
+or permission to send. Failed acquisition emits a blocked result with no draft
+and exit 1; invalid input/storage produces sanitized errors and exit 1. The
+optional attempt defaults to a fresh UUID. No imported findings/context, custom
+body, credentials, output path or write flags are accepted.
+
+Check outcomes are supplemental, not an all-green requirement. Historical
+approvals grant no authority; discussion markers can be copied and cannot prove
+bot identity, duplicates or delivery. Even a successful draft leaves publication
+disabled, verified bot/installation identity and scoped credentials absent,
+uncertain-write reconciliation unimplemented, and durable-host/recovery guarantees
+unverified. Keep the draft private: inert rendering is not secret redaction,
+factual review or a guarantee that publication would be safe.
