@@ -1,3 +1,4 @@
+import { availableParallelism } from "node:os";
 import { defineConfig } from "vitest/config";
 
 if (!process.versions.bun) {
@@ -8,7 +9,7 @@ export default defineConfig({
   test: {
     include: ["test/**/*.test.ts"],
     pool: "forks",
-    maxWorkers: 2,
+    maxWorkers: Math.min(3, availableParallelism()),
     isolate: true,
     sequence: { concurrent: false },
     testTimeout: 10_000,

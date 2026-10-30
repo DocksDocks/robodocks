@@ -132,3 +132,74 @@ The existing admission/replay TLA model does not model workspace paths,
 filesystem races or cleanup safety. No formal proof of workspace safety is
 claimed; this first slice has no deletion transition. A future deletion feature
 requires its own explicit invariants, evidence and authorization review.
+
+## Performance tuning
+
+Keep the full-project native formatter/checker defaults. Bun 1.4.4's installed
+`bun fmt --help --all` and `bun check --help` expose `--threads=N` and `--timing`.
+The [formatter](https://bun.com/docs/format) uses one thread per CPU by default;
+its compatibility `--cache`, `--cache-location` and `--cache-strategy` flags do
+nothing. The [checker](https://bun.com/docs/runtime/check#what-to-expect-in-ci)
+checks the whole project each time and writes no incremental cache. Do not
+replace either gate with changed-file filtering or weaken compiler options.
+
+The Bun-hosted Vitest configuration allows at most three fork workers, capped by
+`availableParallelism()`. Isolation and sequential tests within each file remain
+unchanged. `bun run test --maxWorkers=1` (or `2`) is an explicit lower-resource
+override. More file workers also mean more native subprocesses: worker count is
+not a total process limit. Keep each test's private fixtures, subprocess checks,
+property seeds and SQLite contention tests intact.
+
+### Local evidence, 2026-10-30
+
+Measured the merged feature baseline `c41c3eea47ee5cd99ea842ff90c54002496bc523`
+on a shared Linux x64 executor reporting nine available CPUs, Bun 1.4.4,
+Vitest 5.0.5 and Effect 4.1.0. Dependencies were already installed; caches were
+warm. One untimed warm-up per candidate preceded five measured runs. Native
+thread candidates were interleaved; the corrected test experiment alternated
+2/3 and 3/2 worker order. An earlier fixed-order test pass is excluded from
+these results. Other agents' local validation was paused. Wall time
+includes process startup; values are median and full observed range.
+
+| Command / setting        | Median wall              | Range                                      |
+| ------------------------ | ------------------------ | ------------------------------------------ |
+| fmt, default             | 10.7 ms                  | 9.3–38.1 ms                                |
+| fmt, 1 / 2 / 4 threads   | 17.9 / 11.0 / 9.1 ms     | 15.2–20.4 / 10.7–17.0 / 8.6–10.8 ms        |
+| check, default           | 216.6 ms                 | 174.1–255.2 ms                             |
+| check, 1 / 2 / 4 threads | 762.6 / 482.2 / 267.7 ms | 698.7–825.3 / 453.0–500.7 / 261.2–300.3 ms |
+| tests, 2 workers         | 10.587 s                 | 10.050–18.346 s                            |
+| tests, 3 workers         | 7.967 s                  | 7.907–8.262 s                              |
+
+Three workers reduced the observed median by 24.7%, while median sampled
+process-tree peak RSS increased from 743 to 810 MiB (9.0%). Maximum observed
+process count increased from 12 to 14. RSS sampled every 10 ms double-counts
+shared pages and can miss peaks; it is not a physical-memory requirement.
+The two-worker outlier is retained, not discarded. All 12 corrected test runs
+passed all 236 tests across 16 files, with no skipped tests or fixture leftovers.
+CLI subprocess files dominated per-file elapsed times. The formatter's roughly
+1.6 ms difference does not justify a hard-coded thread cap; checker caps were
+slower. No cold-cache or hosted-CI speedup is claimed, and these few trials are
+not a flakiness guarantee. Existing two-worker historical measurements covered
+only 75 tests/six files and do not establish the current suite's optimum.
+
+Reproduce with the pinned runtime and installed frozen lockfile, without other
+local test runs. For native commands, run each once to warm up, then repeat five
+times while rotating default/1/2/4 order; omit `--threads` for the default:
+
+```sh
+bun fmt --no-script --check --timing --threads=4
+bun check --no-script --timing --threads=4
+bun --bun node_modules/vitest/vitest.mjs run --maxWorkers=2 --reporter=json --outputFile=/tmp/robodocks-test-2.json
+bun --bun node_modules/vitest/vitest.mjs run --maxWorkers=3 --reporter=json --outputFile=/tmp/robodocks-test-3.json
+```
+
+For tests, warm each setting once, then alternate 2/3 and 3/2 order for five
+pairs. Record external monotonic wall time and retain each run's JSON separately;
+verify counts and failures rather than treating time alone as success.
+[Vitest's filesystem module cache](https://vitest.dev/config/fsmodulecache) is
+already enabled by default in 5.0.5. Do not count adding that flag as an
+optimization. Disabling isolation, changing to `bun test`, or adopting
+[experimental native module execution](https://vitest.dev/config/experimental)
+would change test semantics and is not part of this tuning. The application
+state transitions and bounded admission model are unchanged; the existing
+strict, package, property and model gates remain required.
