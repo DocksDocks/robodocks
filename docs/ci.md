@@ -217,3 +217,20 @@ The admission/replay model's state transitions are unchanged: this independent
 read-only command never opens a ledger. No formal proof of remote snapshot
 atomicity or freshness is claimed. Full strict gates, tests, demo and package
 smoke remain required, followed by exact-published-head hosted CI verification.
+
+## Discussion-context verification
+
+Synthetic collector and subprocess CLI tests cover historical/null anchors,
+deleted authors, text preservation, reordered/edited/deleted observations,
+pagination sentinels and category caps, identities/visibility/head changes,
+malformed/pending review data, byte/time/request bounds and unavailable APIs.
+The installed artifact advertises the command and rejects ledger flags without
+creating storage. Shared HTTP tests enforce fixed origin, GET-only requests,
+no credentials, redirects or returned-URL following. No live API interoperability
+or model-review quality is established by synthetic fixtures.
+
+This slice does not change admission, replay, recovery or publishing transitions,
+so the existing formal admission model needs no specification change. It does
+not prove remote observation atomicity or completeness. Full strict tests, demo,
+installed package smoke and the unchanged model/negative controls remain gates;
+local verification is separate from exact-published-head hosted CI.

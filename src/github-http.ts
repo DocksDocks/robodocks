@@ -62,6 +62,9 @@ function endpoint(path: string): string {
       suffix ?? "",
     ) &&
     !/^\/pulls\/[1-9][0-9]*$/.test(suffix ?? "") &&
+    !/^\/(?:issues\/[1-9][0-9]*\/comments|pulls\/[1-9][0-9]*\/(?:reviews|comments))\?per_page=100&page=[1-2]$/.test(
+      suffix ?? "",
+    ) &&
     !new RegExp(`^/compare/${sha}\\.\\.\\.${sha}\\?per_page=1$`).test(
       suffix ?? "",
     ) &&
