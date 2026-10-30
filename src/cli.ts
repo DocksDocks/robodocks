@@ -6,6 +6,7 @@ import {
 import { version } from "../package.json";
 import { reviewGitHubSource } from "./agent-review.ts";
 import { randomUUID } from "node:crypto";
+import { collectGitHubCheckContext } from "./github-check-context.ts";
 import { collectGitHubSource } from "./github-source.ts";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
@@ -20,6 +21,7 @@ const usage =
   "Usage: robodocks plan --policy <policy.json> --input <review.json> --database <ledger.sqlite>\n" +
   "       robodocks inspect --policy <policy.json> --database <existing-ledger.sqlite> --repository <owner/repo> [--status proposed|published|closed|all] [--limit 1..100] [--cursor <cursor>]\n" +
   "       robodocks collect --policy <policy.json> --repository <owner/repo> --pull-request <number> [--attempt <id>]\n" +
+  "       robodocks collect-checks --policy <policy.json> --repository <owner/repo> --pull-request <number> [--attempt <id>]\n" +
   "       robodocks review --policy <policy.json> --input <agent-response.json> --database <ledger.sqlite> --repository <owner/repo> --pull-request <number> --attempt <id>\n" +
   "       robodocks backup --policy <policy.json> --database <existing-ledger.sqlite> --output <new-snapshot.sqlite>\n" +
   "       robodocks restore --policy <policy.json> --input <snapshot.sqlite> --database <new-ledger.sqlite>\n" +
@@ -32,6 +34,7 @@ const usage =
 let activeOperation:
   | "plan"
   | "inspect"
+  | "collect-checks"
   | "collect"
   | "review"
   | "backup"
@@ -41,21 +44,24 @@ let activeOperation:
 
 function parseArguments(args: string[]) {
   const operation =
-    args[0] === "backup"
-      ? "backup"
-      : args[0] === "restore"
-        ? "restore"
-        : args[0] === "review"
-          ? "review"
-          : args[0] === "collect"
-            ? "collect"
-            : args[0] === "inspect"
-              ? "inspect"
-              : "plan";
+    args[0] === "collect-checks"
+      ? "collect-checks"
+      : args[0] === "backup"
+        ? "backup"
+        : args[0] === "restore"
+          ? "restore"
+          : args[0] === "review"
+            ? "review"
+            : args[0] === "collect"
+              ? "collect"
+              : args[0] === "inspect"
+                ? "inspect"
+                : "plan";
   const flags = [
     "plan",
     "inspect",
     "collect",
+    "collect-checks",
     "review",
     "backup",
     "restore",
@@ -67,7 +73,9 @@ function parseArguments(args: string[]) {
       ? ["--policy", "--database", "--output"]
       : operation === "plan" || operation === "restore"
         ? ["--policy", "--input", "--database"]
-        : operation === "collect" || operation === "review"
+        : operation === "collect" ||
+            operation === "collect-checks" ||
+            operation === "review"
           ? [
               "--policy",
               "--repository",
@@ -100,7 +108,11 @@ function parseArguments(args: string[]) {
   }
   const policyPath = values.get("--policy");
   requireCondition(policyPath, "USAGE", usage);
-  if (operation === "collect" || operation === "review") {
+  if (
+    operation === "collect" ||
+    operation === "collect-checks" ||
+    operation === "review"
+  ) {
     const repository = values.get("--repository");
     const pullRequest = values.get("--pull-request");
     requireCondition(
@@ -132,6 +144,8 @@ function parseArguments(args: string[]) {
         request,
       } as const;
     }
+    if (operation === "collect-checks")
+      return { operation, policyPath, request } as const;
     return { operation, policyPath, request } as const;
   }
   const databasePath = values.get("--database");
@@ -296,6 +310,7 @@ const main = Effect.gen(function* () {
         "plan",
         "inspect",
         "collect",
+        "collect-checks",
         "review",
         "backup",
         "restore",
@@ -359,55 +374,63 @@ const main = Effect.gen(function* () {
   activeOperation = options.operation;
   const policy = yield* readJson(options.policyPath);
   const result =
-    options.operation === "backup"
-      ? yield* backupLedger(policy, options.databasePath, options.outputPath)
-      : options.operation === "restore"
-        ? yield* restoreLedger(policy, options.inputPath, options.databasePath)
-        : options.operation === "review"
-          ? yield* reviewGitHubSource(
+    options.operation === "collect-checks"
+      ? yield* collectGitHubCheckContext(policy, options.request)
+      : options.operation === "backup"
+        ? yield* backupLedger(policy, options.databasePath, options.outputPath)
+        : options.operation === "restore"
+          ? yield* restoreLedger(
               policy,
-              options.request,
-              yield* readJson(options.inputPath),
+              options.inputPath,
               options.databasePath,
             )
-          : options.operation === "collect"
-            ? yield* collectGitHubSource(policy, options.request)
-            : options.operation === "inspect"
-              ? yield* inspectLedger(
-                  policy,
-                  options.databasePath,
-                  options.query,
-                )
-              : yield* Effect.gen(function* () {
-                  const input = yield* readJson(options.inputPath);
-                  return yield* withReviewer(
+          : options.operation === "review"
+            ? yield* reviewGitHubSource(
+                policy,
+                options.request,
+                yield* readJson(options.inputPath),
+                options.databasePath,
+              )
+            : options.operation === "collect"
+              ? yield* collectGitHubSource(policy, options.request)
+              : options.operation === "inspect"
+                ? yield* inspectLedger(
                     policy,
                     options.databasePath,
-                    (reviewer) =>
-                      Effect.gen(function* () {
-                        const plan = yield* reviewer.plan(input);
-                        return {
-                          schemaVersion: 1,
-                          operation: "plan",
-                          plan: {
-                            ...plan,
-                            intents: plan.intents.map(
-                              ({ id, findingId, kind, dryRun, status }) => ({
-                                id,
-                                findingId,
-                                kind,
-                                dryRun,
-                                status,
-                              }),
-                            ),
-                          },
-                          storage: reviewer.storage,
-                        };
-                      }),
-                  );
-                });
+                    options.query,
+                  )
+                : yield* Effect.gen(function* () {
+                    const input = yield* readJson(options.inputPath);
+                    return yield* withReviewer(
+                      policy,
+                      options.databasePath,
+                      (reviewer) =>
+                        Effect.gen(function* () {
+                          const plan = yield* reviewer.plan(input);
+                          return {
+                            schemaVersion: 1,
+                            operation: "plan",
+                            plan: {
+                              ...plan,
+                              intents: plan.intents.map(
+                                ({ id, findingId, kind, dryRun, status }) => ({
+                                  id,
+                                  findingId,
+                                  kind,
+                                  dryRun,
+                                  status,
+                                }),
+                              ),
+                            },
+                            storage: reviewer.storage,
+                          };
+                        }),
+                    );
+                  });
   if (
-    ("acquisition" in result && result.acquisition.status !== "complete") ||
+    ("acquisition" in result &&
+      result.acquisition.status !== "complete" &&
+      result.acquisition.status !== "endpoint-observed") ||
     ("review" in result && result.review.status === "incomplete")
   )
     process.exitCode = 1;

@@ -388,3 +388,32 @@ after recording it. This CLI does not publish, fetch or verify that checkpoint.
 Future deletion requires independently verified preservation and inactivity,
 an agreed retention policy and separate authorization; this preview provides
 none of those capabilities.
+
+## Exact-head check context (read-only)
+
+    bun src/cli.ts collect-checks --policy examples/policy.json --repository example-owner/example-project --pull-request 7 --attempt checks-1
+
+This separate versioned command observes check runs and the latest commit status
+per context for a freshly verified public, same-repository PR head. It does not
+change source snapshot v1, review v1, or the ledger. The optional attempt ID is
+operator context, not a GitHub event ID. No database argument is accepted.
+
+The result has `schemaVersion: 1`, `operation: "check-context"`, identity-bound
+`context`, and a non-atomic `observation` interval. Acquisition is
+`endpoint-observed`, `incomplete`, `unavailable`, or `stale`. Only
+`endpoint-observed` exits zero; other states return null context and reason codes.
+An empty observed list is not proof that CI is configured, required, passing,
+or absent globally. Failures never become an empty successful result.
+
+Bounds are 200 check runs and 200 latest statuses, two 100-item pages per endpoint,
+12 total requests, 2 MiB per response, 8 MiB total response bytes, 10 seconds per
+request and 60 seconds overall. Two full observations must agree, then repository,
+PR numeric ID and head are rechecked. These reads are not an atomic snapshot and
+can become stale immediately after collection. Checks are additionally limited
+by GitHub's endpoint to the 1,000 most recent check suites. Same-name runs retain
+separate run/app/suite identities; latest statuses retain IDs and context names.
+
+This is supporting evidence, never an aggregate CI approval, merge-eligibility
+claim, or replacement for fresh required-check/branch-policy verification. It
+fetches no logs, annotations, artifacts or returned URLs; runs no repository
+code; loads no credentials; and makes no GitHub or ledger writes.

@@ -287,3 +287,35 @@ blocks a task or fails the inventory; partial scans never establish completeness
 All tasks retain four unverified evidence blockers even when no other blocker
 is found. `needs-verification` is not deletion eligibility. The command has no
 retention decision, deletion implementation or dependency on a backup feature.
+
+## Separate exact-head check context
+
+`src/github-check-context.ts` implements `collect-checks` and its independent
+`CheckContextResultSchema` v1. Source snapshot and review contracts remain v1 and
+unchanged; check context is not admitted to the findings ledger or model input.
+Public repository identity and PR numeric ID/head are observed before and after
+bounded evidence reads. The check-runs endpoint uses a full SHA and `filter=all`;
+the combined-status endpoint supplies latest statuses per context and binds its
+response SHA. Returned aggregate status is deliberately not used as approval.
+
+Two full passes must have identical normalized results, page counts and order;
+duplicate run IDs/status IDs or status contexts, malformed rows, changed counts,
+truncation and evidence drift fail closed. Names do not collapse distinct runs. After order-sensitive verification, output
+rows are sorted by numeric ID; the observation explicitly lists omitted scopes
+(logs, artifacts, annotations, check output, external URLs, required checks,
+merge eligibility, historical statuses and older check suites).
+The 200-row cap per endpoint, two pages per pass, 12-request cap, response budgets
+and deadlines bound work. Final output includes wall-clock endpoints, monotonic
+duration, `atomic: false`, scope and GitHub's 1,000-suite endpoint limit. No
+observation is globally complete CI history or guaranteed current after return.
+
+`endpoint-observed` means only that this bounded endpoint observation succeeded.
+`incomplete`, `unavailable` and `stale` carry sanitized reason codes and null
+context rather than partial apparently usable evidence. Repository policy and
+request validation remain mandatory before network activity. No mutation,
+publication, approval, merge decision or ledger state transition is introduced.
+
+The command name is `collect-checks`; its independent versioned result retains
+`operation: "check-context"`. Endpoint semantics follow GitHub's official
+[check-run reference](https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference)
+and [combined status reference](https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference).

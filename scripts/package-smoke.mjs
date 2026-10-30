@@ -140,6 +140,7 @@ try {
     "plan",
     "inspect",
     "collect",
+    "collect-checks",
     "review",
     "backup",
     "restore",
@@ -187,6 +188,24 @@ try {
   assert.equal(JSON.parse(noDeletion.stderr).error, "USAGE");
   const policy = join(installed, "examples", "policy.json");
   const input = join(installed, "examples", "review.json");
+  const rejectedChecks = run(
+    bin,
+    [
+      "collect-checks",
+      "--policy",
+      policy,
+      "--repository",
+      "example-owner/example-project",
+      "--pull-request",
+      "7",
+      "--database",
+      join(temporary, "forbidden.sqlite"),
+    ],
+    temporary,
+    1,
+  );
+  assert.equal(JSON.parse(rejectedChecks.stderr).error, "USAGE");
+  assert(!existsSync(join(temporary, "forbidden.sqlite")));
   const database = join(temporary, "ledger.sqlite");
   const args = [
     "plan",

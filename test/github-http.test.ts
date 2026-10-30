@@ -464,3 +464,34 @@ test("HTTP total and request timers are cleaned up after successful scope comple
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(signal?.aborted, false);
 });
+
+test("check context allowlist accepts only exact SHA fixed queries and bounded page numbers", async () => {
+  const paths = [
+    `${root}/commits/${sha}/check-runs?filter=all&per_page=100&page=1`,
+    `${root}/commits/${sha}/status?per_page=100&page=2`,
+  ];
+  await run(
+    async () => json(),
+    async (http) => {
+      for (const path of paths) await http.get(path);
+    },
+  );
+  for (const path of [
+    paths[0]!.replace(sha, "main"),
+    paths[0]!.replace("filter=all", "filter=latest"),
+    paths[0]!.replace("&page=1", "&page=3"),
+    paths[1]! + "&token=secret",
+    `${root}/actions/runs/1/logs`,
+    `${root}/check-runs/1`,
+    `${root}/commits/${sha}/statuses?per_page=100&page=1`,
+  ])
+    await fails(
+      run(
+        async () => {
+          throw new Error("Must not fetch");
+        },
+        (http) => http.get(path),
+      ),
+      "HTTP_ENDPOINT",
+    );
+});
