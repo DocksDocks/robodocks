@@ -1,7 +1,6 @@
 {
   "name": "robodocks",
   "version": "0.0.1",
-  "private": true,
   "description": "A repository-agnostic, dry-run foundation for a reviewer-first automation tool.",
   "type": "module",
   "packageManager": "bun@1.4.4",
@@ -23,8 +22,25 @@
     "test": "bun --bun node_modules/vitest/vitest.mjs run",
     "typecheck": "bun check --no-script",
     "format": "bun fmt --no-script",
-    "lint": "bun --bun run oxlint --type-aware --max-warnings 0 --report-unused-disable-directives src test vitest.config.ts",
+    "lint": "bun --bun run oxlint --type-aware --max-warnings 0 --report-unused-disable-directives src test bin scripts vitest.config.ts",
     "check": "bun check --no-script && bun run lint && bun fmt --no-script --check && bun run test",
-    "demo": "bun src/cli.ts plan --policy examples/policy.json --input examples/review.json --database local/demo.sqlite"
+    "demo": "bun src/cli.ts plan --policy examples/policy.json --input examples/review.json --database local/demo.sqlite",
+    "test:package": "bun scripts/package-smoke.mjs",
+    "test:model": "bash formal/check.sh"
+  },
+  "bin": {
+    "robodocks": "bin/robodocks.ts"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "skills/",
+    "docs/",
+    "examples/"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DocksDocks/robodocks.git"
   }
 }

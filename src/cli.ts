@@ -1,3 +1,5 @@
+import { version } from "../package.json";
+import { reviewGitHubSource } from "./agent-review.ts";
 import { randomUUID } from "node:crypto";
 import { collectGitHubSource } from "./github-source.ts";
 import { constants } from "node:fs";
@@ -9,28 +11,38 @@ import { inspectLedger } from "./inspection.ts";
 import { ContractError, requireCondition } from "./validation.ts";
 
 const usage =
-  "Usage: bun src/cli.ts plan --policy <policy.json> --input <review.json> --database <ledger.sqlite>\n" +
-  "       bun src/cli.ts inspect --policy <policy.json> --database <existing-ledger.sqlite> --repository <owner/repo> [--status proposed|published|closed|all] [--limit 1..100] [--cursor <cursor>]\n" +
-  "       bun src/cli.ts collect --policy <policy.json> --repository <owner/repo> --pull-request <number> [--attempt <id>]\n" +
+  "Usage: robodocks plan --policy <policy.json> --input <review.json> --database <ledger.sqlite>\n" +
+  "       robodocks inspect --policy <policy.json> --database <existing-ledger.sqlite> --repository <owner/repo> [--status proposed|published|closed|all] [--limit 1..100] [--cursor <cursor>]\n" +
+  "       robodocks collect --policy <policy.json> --repository <owner/repo> --pull-request <number> [--attempt <id>]\n" +
+  "       robodocks review --policy <policy.json> --input <agent-response.json> --database <ledger.sqlite> --repository <owner/repo> --pull-request <number> --attempt <id>\n" +
+  "       robodocks --version\n" +
   "The legacy flags-only form is an alias for plan. Inspection defaults to proposed and limit 20.";
 
-let activeOperation: "plan" | "inspect" | "collect" | undefined;
+let activeOperation: "plan" | "inspect" | "collect" | "review" | undefined;
 
 function parseArguments(args: string[]) {
   const operation =
-    args[0] === "collect"
-      ? "collect"
-      : args[0] === "inspect"
-        ? "inspect"
-        : "plan";
-  const flags = ["plan", "inspect", "collect"].includes(args[0] ?? "")
+    args[0] === "review"
+      ? "review"
+      : args[0] === "collect"
+        ? "collect"
+        : args[0] === "inspect"
+          ? "inspect"
+          : "plan";
+  const flags = ["plan", "inspect", "collect", "review"].includes(args[0] ?? "")
     ? args.slice(1)
     : args;
   const allowed =
     operation === "plan"
       ? ["--policy", "--input", "--database"]
-      : operation === "collect"
-        ? ["--policy", "--repository", "--pull-request", "--attempt"]
+      : operation === "collect" || operation === "review"
+        ? [
+            "--policy",
+            "--repository",
+            "--pull-request",
+            "--attempt",
+            ...(operation === "review" ? ["--input", "--database"] : []),
+          ]
         : [
             "--policy",
             "--database",
@@ -56,7 +68,7 @@ function parseArguments(args: string[]) {
   }
   const policyPath = values.get("--policy");
   requireCondition(policyPath, "USAGE", usage);
-  if (operation === "collect") {
+  if (operation === "collect" || operation === "review") {
     const repository = values.get("--repository");
     const pullRequest = values.get("--pull-request");
     requireCondition(
@@ -67,15 +79,28 @@ function parseArguments(args: string[]) {
       "USAGE",
       usage,
     );
-    return {
-      operation,
-      policyPath,
-      request: {
-        repository,
-        pullRequest: Number(pullRequest),
-        attemptId: values.get("--attempt") ?? randomUUID(),
-      },
-    } as const;
+    const request = {
+      repository,
+      pullRequest: Number(pullRequest),
+      attemptId: values.get("--attempt") ?? randomUUID(),
+    };
+    if (operation === "review") {
+      const inputPath = values.get("--input");
+      const databasePath = values.get("--database");
+      requireCondition(
+        inputPath && databasePath && values.get("--attempt"),
+        "USAGE",
+        usage,
+      );
+      return {
+        operation,
+        policyPath,
+        inputPath,
+        databasePath,
+        request,
+      } as const;
+    }
+    return { operation, policyPath, request } as const;
   }
   const databasePath = values.get("--database");
   requireCondition(databasePath, "USAGE", usage);
@@ -148,7 +173,7 @@ function output(text: string) {
     catch: () =>
       new ContractError(
         "OUTPUT",
-        activeOperation === "plan"
+        activeOperation === "plan" || activeOperation === "review"
           ? "Could not write review output; the delivery may already be committed"
           : activeOperation === "inspect"
             ? "Could not write inspection output; no delivery was admitted"
@@ -219,10 +244,14 @@ function readJson(path: string): Effect.Effect<unknown, ContractError> {
 
 const main = Effect.gen(function* () {
   const args = process.argv.slice(2);
+  if (args.length === 1 && args[0] === "--version") {
+    yield* output(version + "\n");
+    return;
+  }
   if (
     (args.length === 1 && args[0] === "--help") ||
     (args.length === 2 &&
-      ["plan", "inspect", "collect"].includes(args[0] ?? "") &&
+      ["plan", "inspect", "collect", "review"].includes(args[0] ?? "") &&
       args[1] === "--help")
   ) {
     yield* output(usage + "\n");
@@ -235,39 +264,49 @@ const main = Effect.gen(function* () {
   activeOperation = options.operation;
   const policy = yield* readJson(options.policyPath);
   const result =
-    options.operation === "collect"
-      ? yield* collectGitHubSource(policy, options.request)
-      : options.operation === "inspect"
-        ? yield* inspectLedger(policy, options.databasePath, options.query)
-        : yield* Effect.gen(function* () {
-            const input = yield* readJson(options.inputPath);
-            return yield* withReviewer(
-              policy,
-              options.databasePath,
-              (reviewer) =>
-                Effect.gen(function* () {
-                  const plan = yield* reviewer.plan(input);
-                  return {
-                    schemaVersion: 1,
-                    operation: "plan",
-                    plan: {
-                      ...plan,
-                      intents: plan.intents.map(
-                        ({ id, findingId, kind, dryRun, status }) => ({
-                          id,
-                          findingId,
-                          kind,
-                          dryRun,
-                          status,
-                        }),
-                      ),
-                    },
-                    storage: reviewer.storage,
-                  };
-                }),
-            );
-          });
-  if ("acquisition" in result && result.acquisition.status !== "complete")
+    options.operation === "review"
+      ? yield* reviewGitHubSource(
+          policy,
+          options.request,
+          yield* readJson(options.inputPath),
+          options.databasePath,
+        )
+      : options.operation === "collect"
+        ? yield* collectGitHubSource(policy, options.request)
+        : options.operation === "inspect"
+          ? yield* inspectLedger(policy, options.databasePath, options.query)
+          : yield* Effect.gen(function* () {
+              const input = yield* readJson(options.inputPath);
+              return yield* withReviewer(
+                policy,
+                options.databasePath,
+                (reviewer) =>
+                  Effect.gen(function* () {
+                    const plan = yield* reviewer.plan(input);
+                    return {
+                      schemaVersion: 1,
+                      operation: "plan",
+                      plan: {
+                        ...plan,
+                        intents: plan.intents.map(
+                          ({ id, findingId, kind, dryRun, status }) => ({
+                            id,
+                            findingId,
+                            kind,
+                            dryRun,
+                            status,
+                          }),
+                        ),
+                      },
+                      storage: reviewer.storage,
+                    };
+                  }),
+              );
+            });
+  if (
+    ("acquisition" in result && result.acquisition.status !== "complete") ||
+    ("review" in result && result.review.status === "incomplete")
+  )
     process.exitCode = 1;
   // Let signals queued during a synchronous native call reach AbortController.
   // An already committed transaction is not rolled back by late interruption.
@@ -308,7 +347,7 @@ try {
     process.exitCode = interruptionCode;
     await reportFailure(
       "INTERRUPTED",
-      activeOperation === "plan"
+      activeOperation === "plan" || activeOperation === "review"
         ? "Reviewer interrupted; an in-flight delivery may already be committed"
         : "Operation interrupted; no delivery was admitted",
     );

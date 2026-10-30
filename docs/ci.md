@@ -65,3 +65,44 @@ model. Fixtures cover all supported change types, merge-base provenance,
 identity rechecks, exact BOM/CRLF preservation, caps/omissions, blob integrity,
 consumer completeness and independent attempt/content IDs. Live GitHub API
 interoperability is not claimed by these synthetic tests.
+
+## Installed artifact gate
+
+The workflow also runs `bun run test:package`. See [packaging](packaging.md) for
+the exact tarball contents, production-only clean installation, CLI smoke and
+platform limits. This is an artifact test, not a registry release.
+
+## Review gate for assistant-created pull requests
+
+Open assistant-created changes as a draft PR, then review the full published
+diff at its exact head commit before asking the user to approve it. Fix confirmed
+errors within the authorized scope, review the resulting delta, and verify CI
+for that updated exact head. Repeat this review-and-fix cycle until confirmed findings are fixed, or any
+remaining finding is explicitly disclosed for the user’s decision, and the
+required checks pass. If a change needs new
+authorization or verification is blocked, report that boundary rather than
+requesting approval as though the gate passed.
+
+Only after this gate passes should the assistant request the user's approval.
+A passing review is not a formal GitHub approval, merge permission, or deployment
+authorization; those actions still require the applicable explicit user approval.
+This is the project's contributor workflow, not a claim that GitHub branch
+protection or a required approval rule has been configured.
+
+## Formal-verification applicability
+
+Every PR must identify the invariants its changes affect and state the evidence
+used to check them, including "none changed" when appropriate. Ordinary changes
+still require code review, focused regressions, relevant property tests and the
+exact-head CI checks. For critical state transitions (admission, replay,
+concurrency, recovery or future publishing), assess whether a formal model or
+proof is warranted; update the applicable model when its contract changes, or
+explain why it does not apply. Do not require a theorem prover for an unrelated
+CLI text or stream-handling change.
+
+The bounded [admission model](formal-verification.md) adds a TLC gate to CI.
+A model-check result applies only to the stated finite model, assumptions and
+invariants. A proof must name its specification, checker and implementation
+connection. AI review, prose arguments and passing tests are not formal proofs;
+model checking does not establish correctness of all TypeScript, Bun or SQLite.
+Never relabel partial, failed or unexecuted verification as a passing gate.

@@ -106,7 +106,8 @@ coordination, and storage-device durability guarantees are outside this starter.
 
 - Allowlisting is not GitHub authorization. There are no installation tokens,
   webhook signatures, event freshness windows, or repository-rename handling.
-- currentHeadSha is supplied by the caller, not fetched by the core. A future
+- The legacy plan command accepts caller-supplied currentHeadSha. The review
+  adapter derives it from fresh GitHub acquisition instead. A future
   publisher must refetch the target and revalidate queued intents immediately
   before writing; a later head change remains an external race.
 - Local atomic transactions do not make remote publication exactly-once. There
@@ -164,3 +165,23 @@ not a webhook delivery ID. Complete source can still contain malicious prompts,
 secrets, mentions, terminal escapes in non-source metadata, or misleading code;
 source evidence is not an instruction. A deterministic snapshot hash is not a
 signature, and the final identity recheck cannot prevent later changes.
+
+## External-agent response boundary
+
+Use `review`, not the fixture-only `plan`, to admit findings against authentic
+public GitHub source. The review command does not load a saved source envelope
+as authority: it recollects, rechecks identity, then compares the response binding.
+Snapshot hashes are integrity/binding identifiers, not signatures. The trusted
+local process, operator-selected target/attempt/policy, HTTP transport and
+filesystem remain trusted. An agent with arbitrary shell/filesystem permissions
+can bypass this workflow or alter its database; the skill is guidance, not a
+sandbox or a permission grant.
+
+A head change after the final collection check remains possible. This is only
+local dry-run admission, not publication authorization. A future publisher must
+revalidate immediately before any remote write and reconcile uncertain outcomes.
+The response is copied before asynchronous acquisition, and context is rebuilt
+only from fresh head-side files. Unknown fields, unsupported scope, before-side
+anchors, stale snapshot IDs, cross-attempt responses and malformed evidence fail
+closed. An explicit incomplete response or acquisition failure is never labeled
+as a successful empty review. Existing pending intents are not refreshed.
