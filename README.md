@@ -123,9 +123,12 @@ services (it.live or ordinary Vitest tests), never a simulated database or fake
 clock. Pure Effect contract properties use it.effect. Each test owns its temporary
 files, and each database-backed property evaluation, including shrinking, acquires
 a fresh scoped database. No mutable reviewer layer is shared across tests. The
-configuration uses up to two isolated fork workers and sequential tests within
+configuration uses up to three isolated fork workers (capped by available CPU
+parallelism) and sequential tests within
 each file for bounded native-process load; individual tests may explicitly exercise concurrent clients.
 Seeded properties supplement, rather than replace, the explicit regressions.
+On constrained hosts, use `bun run test --maxWorkers=1` or `--maxWorkers=2`.
+See [CI performance evidence](docs/ci.md#performance-tuning) for measurements and limits.
 
 ## Local backup and fresh-path restore
 
