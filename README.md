@@ -4,7 +4,7 @@ A generic, open-source foundation for repository automation: **reviewer first,
 executor later**. The integration target is any explicitly authorized GitHub
 repository, without project-specific business rules.
 
-## Current status: a runnable dry-run foundation
+## Current status: a dry-run planner and read-only source collector
 
 This starter **does not discover bugs or perform AI code reviews yet**. It accepts
 proposed findings, validates their structure and cited evidence, and reserves
@@ -18,6 +18,7 @@ comments, open issues, modify reviewed source, merge, or deploy.
 - Durable delivery/finding deduplication and transactional pending intent state.
 - Typed Effect errors, scoped resources, and a single Effect Schema contract.
 - Explicit acknowledgement/closure observations; no automatic follow-up issues.
+- Bounded public GitHub source collection, with immutable provenance and exact text.
 - Synthetic examples and tests, without credentials or private project context.
 
 These checks establish **structural validity**, not factual correctness,
@@ -144,9 +145,53 @@ It returns an Effect and owns its connection scope. The legacy reviewer.snapshot
 remains a full allowlist-wide diagnostic for library callers; it is not a bounded
 production inspection interface and is never called by the CLI plan command.
 
-Inputs are illustrated in examples/policy.json and examples/review.json. A future
-source adapter must authenticate the repository and independently fetch the
-current head and SHA-bound source snapshot. The demo uses synthetic observations.
+Inputs are illustrated in examples/policy.json and examples/review.json. The
+plan demo uses synthetic observations. Collection is separate and does not
+silently feed findings into the planner or write a ledger.
+
+## Manual public GitHub source collection
+
+Set an operator-owned policy's allowedRepositories to the exact canonical public
+repository name, then run (replace the example target with that allowed target):
+
+    bun src/cli.ts collect --policy examples/policy.json --repository example-owner/example-project --pull-request 7 --attempt manual-7
+
+This performs **anonymous GET requests** to api.github.com. It supports only
+public same-repository GitHub.com PRs. No token, private/fork access, alternate
+host, model provider, webhook, or write endpoint is available. The optional
+--attempt identifies a manual run; it defaults to a fresh UUID. It is not a
+transport event/delivery ID, and eventId is always null.
+
+JSON on stdout includes operation: "collect", versioned source, canonical
+repository/PR IDs, head/base-tip/merge-base SHAs, acquisition status/omissions and
+resource counters. The snapshot preserves added, modified, removed and renamed
+paths, before text at the merge base, and after text at the head. Whitespace,
+CRLF and UTF-8 BOM are preserved. Patches and returned URLs are not authority.
+Only regular UTF-8 blobs without binary control characters are supported.
+
+Complete acquisition exits 0; incomplete/unsupported acquisition emits its
+explicit JSON result and exits 1. Invalid inputs and transport-scope failures
+emit sanitized errors on stderr and exit nonzero. Collection is fail-fast: a
+partial snapshot contains only files fully collected before the first omission,
+not a complete inventory of everything skipped. An inventory at or above 300
+files, truncated tree, absent or unsupported content, identity mismatch, or bound
+failure cannot produce a complete snapshot. **Review is always not-run, even
+for a complete empty snapshot.** No claim of a clean review is made.
+
+snapshotId is a deterministic SHA-256 of the versioned provenance and sorted
+exact file records, populated only for complete acquisition. Attempts, event
+IDs, network counters and review state are outside that identity. This is
+content identity, not a signature or proof that an arbitrary imported envelope
+came from GitHub. Keep the collector/process boundary trusted. The final PR and
+repository recheck detects changes during acquisition, not changes after it.
+
+The source API is collectGitHubSource in src/github-source.ts. It returns a
+typed Effect with an injectable HTTP transport for offline tests. sourceForModel
+validates a complete envelope and gives a future model an owned snapshot copy;
+ModelFindingsSchema accepts findings only, never replacement trusted context.
+No model implementation or model invocation exists. Existing plan/inspect
+contracts and SQLite schema are unchanged. Source JSON remains untrusted data;
+keep it out of public logs and do not execute its contents.
 
 ## Version selection policy
 
@@ -187,8 +232,8 @@ is provided. The ledger has a 10,000-delivery/finding capacity.
 
 ## Roadmap, not implemented
 
-1. Read-only GitHub adapter: authenticated repository/installation binding and
-   independently verified SHA-bound snapshots.
+1. Extend the bounded public source collector only with separately authorized
+   private/fork support and authenticated installation binding.
 2. Pluggable AI reviewer and quality evaluations, treating repository text as
    untrusted data rather than instructions.
 3. Separately authorized publisher: fresh-head checks, rendering/redaction,

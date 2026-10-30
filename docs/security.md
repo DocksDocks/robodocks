@@ -4,15 +4,17 @@
 
 **Trusted:** operator policy; an adapter's authenticated repository/PR identity,
 fresh current-head SHA, and source snapshot fetched at the review SHA; the local
-process, database file, and filesystem owner. The JSON CLI is a fixture harness,
-not an authenticated source adapter. Inventing both source and evidence can pass
-structural validation.
+process, database file, and filesystem owner. The plan CLI is still a fixture harness. The separate collect command verifies
+public source through the fixed GitHub API origin without credentials. Inventing
+both source and evidence can still pass the plan contract; it is not proof of
+source authenticity.
 
 **Untrusted:** repository files, PR text, comments, proposed findings, and future
 model output. They may contain malicious instructions, sensitive data, false
 claims, or misleading confidence scores. They never select policy or call tools.
 
-There is no model, source-code interpreter, or network client in the review core.
+There is no model or source-code interpreter. The review core has no network
+client; the separate source collector has a bounded read-only GitHub client.
 Instruction text remains data. This is not a general prompt-injection defense
 for a future model integration. Candidate code is executed only by this
 project's own isolated CI tests, never by interpreting a review fixture.
@@ -127,3 +129,38 @@ coordination, and storage-device durability guarantees are outside this starter.
 
 See [architecture](architecture.md) for transaction/lifecycle details and
 [CI](ci.md) for verification and dependency-install boundaries.
+
+## Public source collector limits
+
+The collector's policy is local/operator-owned. Only canonical allowlisted public,
+same-repository GitHub.com PRs are supported. Fixed locally constructed paths
+under https://api.github.com use GET with no authentication/cookie headers.
+Redirects, changed response URLs, arbitrary download/raw URLs, moving refs and
+Contents symlink dereferencing are forbidden. Environment tokens are not read.
+The server-side transport has no browser session/cookie jar; fetch also explicitly
+requests omitted credentials. An injected transport is trusted application code,
+not a configurable CLI or repository extension point.
+
+Hard HTTP limits: 650 requests, 2 MiB per JSON response, 16 MiB aggregate response
+body bytes, 10 seconds per request including its body, and 60 seconds total.
+Limits may be lowered for library use/tests, never raised. Response body byte
+counts are the decoded HTTP stream (after fetch content-encoding handling), not
+an attestation of compressed wire bytes. Reads are streamed and cancelled on
+failure or interruption; status bodies and network errors are not exposed.
+No automatic retry or rate-limit sleep consumes additional quota.
+
+Decoded Git blobs are bounded at 512 KiB per side and 2 MiB aggregate across all
+collected sides; exact JavaScript string lengths remain 128 Ki per side and 1 Mi
+aggregate. Repeated content counts each time it is acquired. Valid UTF-8 without
+NUL/other binary control characters is the supported text class, not a general
+file-format classifier. File count >=300, truncated trees, duplicate paths,
+unsupported changes/modes, invalid Base64/UTF-8, absent blobs and any exhausted
+budget never produce complete source or a clean review. Large repositories may
+hit recursive-tree bounds even for a small PR; nonrecursive fallback is deferred.
+
+Collection does not create or mutate a ledger, call a model, publish, execute
+source or authorize any subsequent action. Its optional manual attempt ID is
+not a webhook delivery ID. Complete source can still contain malicious prompts,
+secrets, mentions, terminal escapes in non-source metadata, or misleading code;
+source evidence is not an instruction. A deterministic snapshot hash is not a
+signature, and the final identity recheck cannot prevent later changes.

@@ -145,3 +145,50 @@ cross-page historical snapshot or retention mechanism is promised.
 
 Reuse `test/helpers.ts` for synthetic fixtures and scoped test databases; the
 [README](../README.md#setup-and-commands) defines test-runner and isolation rules.
+
+## Bounded GitHub source acquisition
+
+`src/github-source.ts` is a separate Effect boundary. Operator policy and a
+manual request are decoded before networking; the collector never reads policy
+from source. API metadata must bind the exact allowlisted canonical repository
+name and numeric repository/PR IDs. Both PR sides must identify that same public
+repository. Initial head/base-tip values select a SHA-only comparison; its base
+and merge-base are validated separately. All three commit identities are bound
+with Git commit reads. Recursive head and merge-base trees must be untruncated,
+identity-matched and path-unique. The base-tip tree is not source-before.
+
+The comparison inventory must agree with the PR's changed-file count and stay
+below 300. Independently computed merge-base/head leaf deltas (SHA, mode and
+type) must exactly match its before/after path coverage; directory tree hashes
+are not source files. A small or empty incomplete inventory cannot hide a
+change visible in those full trees. Comparison pagination does not recover files past GitHub's cap. Each
+changed side selects a regular blob by its tree entry, never a Contents or raw
+URL. Returned blob SHA/size, canonical Base64 and the computed Git blob SHA-1
+must agree before fatal UTF-8 decoding. UTF-8 BOM is retained. Unsupported modes,
+control-byte binary content, bad identities and all bounds fail closed. Rename
+old/new paths remain distinct; removed files have no after side. Missing patches
+are normal and patches are deliberately not copied into authoritative source.
+
+A second PR read and repository read must retain identity, visibility, head and
+base before completion. A later change is still possible: this is acquisition,
+not publication authorization. The process fails fast with explicit incomplete
+or unsupported status, first omission and any already-completed file records.
+No snapshot ID is assigned to partial data. Complete snapshot identity hashes
+fixed-order versioned provenance plus lexicographically sorted file records,
+including both sides' mode/blob SHA/exact text. Manual attempt ID, null event ID,
+resource counters and not-run review status are outside the hash.
+
+`sourceForModel` validates side/status/rename relationships, unique sorted paths,
+reconstructed blob hashes/text class and aggregate budgets in addition to the
+complete envelope hash. It is an integrity consumer gate, not a provenance
+signature verifier. Only collector-owned results should cross that trust
+boundary; a fabricated envelope and recomputed hash do not become authenticated
+source. `ReviewModel` and `ModelFindingsSchema` describe a future source-in,
+findings-only-out seam without providing a provider, executing a model, or
+admitting a delivery. A model never supplies a replacement trusted snapshot.
+
+`src/github-http.ts` owns request/scope cancellation and deadlines. The default
+transport is server-side fetch; tests inject deterministic Responses, never
+network hosts. Endpoint construction permits only fixed GitHub API GET paths,
+not arbitrary URL/ref/query inputs. Returned links are ignored. No credential,
+redirect, retry, publisher, webhook or generic provider framework is introduced.

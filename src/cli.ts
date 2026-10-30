@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { collectGitHubSource } from "./github-source.ts";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import type { Writable } from "node:stream";
@@ -9,25 +11,34 @@ import { ContractError, requireCondition } from "./validation.ts";
 const usage =
   "Usage: bun src/cli.ts plan --policy <policy.json> --input <review.json> --database <ledger.sqlite>\n" +
   "       bun src/cli.ts inspect --policy <policy.json> --database <existing-ledger.sqlite> --repository <owner/repo> [--status proposed|published|closed|all] [--limit 1..100] [--cursor <cursor>]\n" +
+  "       bun src/cli.ts collect --policy <policy.json> --repository <owner/repo> --pull-request <number> [--attempt <id>]\n" +
   "The legacy flags-only form is an alias for plan. Inspection defaults to proposed and limit 20.";
 
-let activeOperation: "plan" | "inspect" | undefined;
+let activeOperation: "plan" | "inspect" | "collect" | undefined;
 
 function parseArguments(args: string[]) {
-  const operation = args[0] === "inspect" ? "inspect" : "plan";
-  const flags =
-    args[0] === "plan" || args[0] === "inspect" ? args.slice(1) : args;
+  const operation =
+    args[0] === "collect"
+      ? "collect"
+      : args[0] === "inspect"
+        ? "inspect"
+        : "plan";
+  const flags = ["plan", "inspect", "collect"].includes(args[0] ?? "")
+    ? args.slice(1)
+    : args;
   const allowed =
     operation === "plan"
       ? ["--policy", "--input", "--database"]
-      : [
-          "--policy",
-          "--database",
-          "--repository",
-          "--status",
-          "--limit",
-          "--cursor",
-        ];
+      : operation === "collect"
+        ? ["--policy", "--repository", "--pull-request", "--attempt"]
+        : [
+            "--policy",
+            "--database",
+            "--repository",
+            "--status",
+            "--limit",
+            "--cursor",
+          ];
   const values = new Map<string, string>();
   for (let index = 0; index < flags.length; index += 2) {
     const key = flags[index];
@@ -44,8 +55,30 @@ function parseArguments(args: string[]) {
     values.set(key, value);
   }
   const policyPath = values.get("--policy");
+  requireCondition(policyPath, "USAGE", usage);
+  if (operation === "collect") {
+    const repository = values.get("--repository");
+    const pullRequest = values.get("--pull-request");
+    requireCondition(
+      repository &&
+        pullRequest &&
+        /^[1-9][0-9]*$/.test(pullRequest) &&
+        Number.isSafeInteger(Number(pullRequest)),
+      "USAGE",
+      usage,
+    );
+    return {
+      operation,
+      policyPath,
+      request: {
+        repository,
+        pullRequest: Number(pullRequest),
+        attemptId: values.get("--attempt") ?? randomUUID(),
+      },
+    } as const;
+  }
   const databasePath = values.get("--database");
-  requireCondition(policyPath && databasePath, "USAGE", usage);
+  requireCondition(databasePath, "USAGE", usage);
   if (operation === "plan") {
     const inputPath = values.get("--input");
     requireCondition(inputPath, "USAGE", usage);
@@ -189,7 +222,7 @@ const main = Effect.gen(function* () {
   if (
     (args.length === 1 && args[0] === "--help") ||
     (args.length === 2 &&
-      ["plan", "inspect"].includes(args[0] ?? "") &&
+      ["plan", "inspect", "collect"].includes(args[0] ?? "") &&
       args[1] === "--help")
   ) {
     yield* output(usage + "\n");
@@ -202,33 +235,40 @@ const main = Effect.gen(function* () {
   activeOperation = options.operation;
   const policy = yield* readJson(options.policyPath);
   const result =
-    options.operation === "inspect"
-      ? yield* inspectLedger(policy, options.databasePath, options.query)
-      : yield* Effect.gen(function* () {
-          const input = yield* readJson(options.inputPath);
-          return yield* withReviewer(policy, options.databasePath, (reviewer) =>
-            Effect.gen(function* () {
-              const plan = yield* reviewer.plan(input);
-              return {
-                schemaVersion: 1,
-                operation: "plan",
-                plan: {
-                  ...plan,
-                  intents: plan.intents.map(
-                    ({ id, findingId, kind, dryRun, status }) => ({
-                      id,
-                      findingId,
-                      kind,
-                      dryRun,
-                      status,
-                    }),
-                  ),
-                },
-                storage: reviewer.storage,
-              };
-            }),
-          );
-        });
+    options.operation === "collect"
+      ? yield* collectGitHubSource(policy, options.request)
+      : options.operation === "inspect"
+        ? yield* inspectLedger(policy, options.databasePath, options.query)
+        : yield* Effect.gen(function* () {
+            const input = yield* readJson(options.inputPath);
+            return yield* withReviewer(
+              policy,
+              options.databasePath,
+              (reviewer) =>
+                Effect.gen(function* () {
+                  const plan = yield* reviewer.plan(input);
+                  return {
+                    schemaVersion: 1,
+                    operation: "plan",
+                    plan: {
+                      ...plan,
+                      intents: plan.intents.map(
+                        ({ id, findingId, kind, dryRun, status }) => ({
+                          id,
+                          findingId,
+                          kind,
+                          dryRun,
+                          status,
+                        }),
+                      ),
+                    },
+                    storage: reviewer.storage,
+                  };
+                }),
+            );
+          });
+  if ("acquisition" in result && result.acquisition.status !== "complete")
+    process.exitCode = 1;
   // Let signals queued during a synchronous native call reach AbortController.
   // An already committed transaction is not rolled back by late interruption.
   yield* Effect.sleep("1 millis");

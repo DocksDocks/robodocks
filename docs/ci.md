@@ -56,3 +56,12 @@ The queued-signal checkpoint after a blocking native SQLite call is code-reviewe
 not empirically reverified in a blocking-call signal scenario. Synchronous native
 calls cannot be preempted, and an interrupted CLI may already have committed its
 delivery. No power-loss/crash-recovery stress result is claimed by these checks.
+
+Source-collector HTTP tests use injected synthetic transports. Collection CLI
+tests preload a test-only fetch replacement in a separate Bun process; there is
+no application environment variable or CLI flag to redirect the API. Normal CI
+performs no source-collection network calls, loads no credentials and invokes no
+model. Fixtures cover all supported change types, merge-base provenance,
+identity rechecks, exact BOM/CRLF preservation, caps/omissions, blob integrity,
+consumer completeness and independent attempt/content IDs. Live GitHub API
+interoperability is not claimed by these synthetic tests.

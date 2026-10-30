@@ -13,14 +13,14 @@ const Confidence = Schema.Number.check(
   Schema.isFinite(),
   Schema.isBetween({ minimum: 0, maximum: 1 }),
 );
-const Repository = boundedText(180).check(
+export const Repository = boundedText(180).check(
   Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]+$/),
   Schema.makeFilter(
     (value) => ![".", ".."].includes(value.split("/")[1] ?? ""),
   ),
 );
-const HeadSha = Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/));
-const RelativePath = boundedText(512).check(
+export const HeadSha = Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/));
+export const RelativePath = boundedText(512).check(
   Schema.makeFilter(
     (value) =>
       !Array.from(value).some(
