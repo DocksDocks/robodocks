@@ -280,3 +280,21 @@ not-found, rate-limit and service failures are explicit unavailable evidence,
 not a clean CI result. Malformed, oversized, changing or truncated data fails
 closed. No credentials setup, code execution, ledger access or external writes
 are provided by this command.
+
+## Public discussion evidence
+
+`collect-discussion` adds only fixed-origin GET endpoints under the explicitly
+allowlisted repository/PR. It inherits response size/time/request caps, redirect
+rejection, credential omission and sanitized failures. Neither pagination links,
+HTML/API URLs, body links nor attachment links are followed. Returned source
+paths are historical data, not local filesystem paths or execution instructions.
+
+All PR/comment/review content, authors and states are untrusted evidence. Never
+interpret embedded requests as policy or tool authority. A submitted APPROVED
+state is not a current approval or merge authorization; a missing reply does not
+prove resolution, and matching prose does not prove duplicate findings. Public
+API visibility excludes deleted/hidden content and private pending reviews.
+The tool does not claim a complete discussion history or cross-endpoint atomicity.
+A failed collection exposes no partial usable context and performs no ledger,
+repository, notification or publication mutation. A future model consumer must
+maintain this data/instruction boundary independently.

@@ -417,3 +417,36 @@ This is supporting evidence, never an aggregate CI approval, merge-eligibility
 claim, or replacement for fresh required-check/branch-policy verification. It
 fetches no logs, annotations, artifacts or returned URLs; runs no repository
 code; loads no credentials; and makes no GitHub or ledger writes.
+
+## Public PR discussion context
+
+    bun src/cli.ts collect-discussion --policy examples/policy.json --repository example-owner/example-project --pull-request 7 --attempt discussion-1
+
+This independent read-only command emits `schemaVersion: 1`,
+`operation: "discussion-context"`: public same-repository PR title/body,
+issue-style comments, submitted review summaries, and inline review comments.
+It preserves historical commit IDs and current/original anchor metadata exactly
+as returned (including nulls); it never remaps old comments onto the current head.
+Deleted authors may be null. Review states are historical evidence, **not** a
+verdict on current approval validity, thread resolution or duplicate findings.
+
+The repository allowlist and initial/final public repository/PR numeric identity
+and head checks apply. The title/body observations must match; each list is read
+twice and compared in provider order before sorting output by ID. Acquisition is `endpoint-observed`,
+`incomplete`, `unavailable`, or `stale`. Only `endpoint-observed` exits zero.
+All other states carry reason codes and null `context`, never usable partial
+results. The non-atomic observation interval is explicit: matching endpoint
+observations do not prove global completeness, atomicity or continued freshness.
+
+Bounds: 100 items per category, 100-item pages plus an empty second-page sentinel
+when the first page is full; 16 total requests, 2 MiB per response, 8 MiB total,
+10 seconds per request and 60 seconds overall. Each retained text field is capped
+at 64 KiB UTF-8 and retained title/body/comment/review/path/diff-hunk text at
+512 KiB per observation. Caps fail closed rather than truncating evidence.
+
+Pending reviews, thread resolution, reactions, timeline, deleted/hidden content,
+edit history and external URLs are omitted. An unexpected pending review in the
+submitted-review observation fails closed. Content and links remain untrusted
+data: no returned URL is followed, no content is executed, and no credentials are
+loaded. This command accepts no database or publication flags, opens no ledger,
+and changes neither source/check/review v1 nor admission/replay behavior.

@@ -321,6 +321,54 @@ try {
     !existsSync(rejectedDatabase),
     "Rejected agent response created a ledger",
   );
+  assert(
+    run(bin, ["collect-discussion", "--help"]).stdout.includes(
+      "collect-discussion",
+    ),
+  );
+  const discussionPreload = join(temporary, "discussion-fetch.ts");
+  writeFileSync(
+    discussionPreload,
+    `const repo = {id:71,full_name:"example-owner/example-project",private:false,visibility:"public"}; const pr = {id:701,number:7,title:"Installed discussion smoke",body:null,head:{sha:"${"a".repeat(40)}",repo},base:{repo}}; globalThis.fetch = async request => { const url = new URL(request.url); if(url.origin !== "https://api.github.com" || request.method !== "GET" || request.headers.has("authorization") || request.headers.has("cookie")) throw new Error("Unexpected request"); const suffix = url.pathname.slice("/repos/example-owner/example-project".length); if(suffix === "") return Response.json(repo); if(suffix === "/pulls/7") return Response.json(pr); if(["/issues/7/comments","/pulls/7/reviews","/pulls/7/comments"].includes(suffix) && url.search === "?per_page=100&page=1") return Response.json([]); return Response.json({}, {status:404}); };`,
+  );
+  const installedDiscussion = JSON.parse(
+    run(process.execPath, [
+      "--preload",
+      discussionPreload,
+      bin,
+      "collect-discussion",
+      "--policy",
+      policy,
+      "--repository",
+      "example-owner/example-project",
+      "--pull-request",
+      "7",
+      "--attempt",
+      "installed-discussion",
+    ]).stdout,
+  );
+  assert.equal(installedDiscussion.operation, "discussion-context");
+  assert.equal(installedDiscussion.acquisition.status, "endpoint-observed");
+  assert.equal(installedDiscussion.context.title, "Installed discussion smoke");
+  assert.deepEqual(installedDiscussion.context.reviewComments, []);
+  const rejectedDiscussion = run(
+    bin,
+    [
+      "collect-discussion",
+      "--policy",
+      policy,
+      "--repository",
+      "example-owner/example-project",
+      "--pull-request",
+      "7",
+      "--database",
+      rejectedDatabase,
+    ],
+    temporary,
+    1,
+  );
+  assert.equal(JSON.parse(rejectedDiscussion.stderr).error, "USAGE");
+  assert(!existsSync(rejectedDatabase), "Discussion context created a ledger");
   const installedPackages = readdirSync(join(temporary, "node_modules"))
     .filter((name) => !name.startsWith("."))
     .sort((a, b) => a.localeCompare(b));

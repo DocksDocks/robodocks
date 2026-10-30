@@ -319,3 +319,55 @@ The command name is `collect-checks`; its independent versioned result retains
 `operation: "check-context"`. Endpoint semantics follow GitHub's official
 [check-run reference](https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference)
 and [combined status reference](https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference).
+
+## Independent discussion observation
+
+`src/github-discussion-context.ts` exposes `collectGitHubDiscussionContext` and
+`DiscussionContextResultSchema`; CLI `collect-discussion` emits operation
+`discussion-context` v1 without changing existing contracts. Only caller-owned
+policy/request select an allowlisted repository and PR. The shared HTTP guard
+adds three fixed endpoint families: PR issue comments, PR reviews and PR review
+comments, each `per_page=100&page=1..2`. Repository and PR detail GETs bracket
+two complete normalized list passes in provider order. Initial/final title/body must also match.
+IDs are unique within each category; order/page-boundary changes fail closed before output is sorted by ID.
+Explicit issue/PR relationship URLs, when present, must match the selected
+canonical repository/PR endpoint; they are never followed. Missing historical
+reply parents are not treated as contradictions.
+No author-login or text equality is used to collapse distinct records.
+
+Repository numeric identity, PR numeric identity, public visibility and same-repo
+head/base identity are checked at both boundaries. A head/identity change returns
+stale where the final identity can be established; invalid identity/private or
+unavailable endpoints fail closed. Collection failures still attempt the final
+identity check within the same request/time budget. On any failure context is
+null; successful empty lists mean only empty endpoint observations.
+
+Inline comments retain path, diff hunk, current/original commit IDs, positions,
+lines/start lines, sides, reply parent, review ID and subject type. Nullable or
+optional anchor fields remain nullable; no synthetic head anchor, thread status,
+approval validity or semantic deduplication is derived. Submitted reviews retain
+raw supported state, commit ID, author, body and submission time. Issue/inline
+comments retain creation/update times. Unexpected shapes/states, invalid dates,
+duplicate IDs, changed observations and capacity overflows fail closed.
+
+Bounds and omissions are documented in the README. Text is preserved without
+trimming or newline normalization and measured in UTF-8 bytes. This is a bounded,
+non-atomic public observation, not an authoritative history or snapshot. No
+ledger is opened; the admission/replay state machine and its model are unchanged.
+
+Endpoint semantics were checked against GitHub's official
+[PR details](https://docs.github.com/en/rest/pulls/pulls#get-a-pull-request),
+[issue comments](https://docs.github.com/en/rest/issues/comments#list-issue-comments),
+[submitted/pending reviews](https://docs.github.com/en/rest/pulls/reviews#list-reviews-for-a-pull-request),
+and [inline review comments](https://docs.github.com/en/rest/pulls/comments#list-review-comments-on-a-pull-request)
+documentation: public reads permit unauthenticated access, list pagination caps
+at 100 per page, and pending reviews do not carry submitted-at metadata. Inline
+responses distinguish original/current positions and commits; file comments
+need not have a line. The collector continues to send its existing pinned
+`2022-11-28` API version and treats unsupported response shapes as incomplete.
+
+GitHub's [official OpenAPI response schemas](https://github.com/github/rest-api-description/blob/main/descriptions/api.github.com/api.github.com.json)
+allow null review commit IDs for removed commits and omit deprecated inline
+positions. Both are preserved as null; missing raw bodies fail closed rather
+than being silently converted to empty strings. Current/original inline commit
+IDs remain historical values, not equality requirements against the PR head.

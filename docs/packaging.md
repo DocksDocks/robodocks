@@ -36,6 +36,7 @@ project outside the checkout with production dependencies only, and exercises
 the installed executable. It checks help/version, synthetic plan/replay/inspect, local backup and fresh-path
 restore with replay and pending-record continuity, workspace initialization,
 task creation and conservative read-only inventory,
+installed synthetic discussion-context collection and rejection of ledger flags,
 invalid-input JSON errors, sanitized help/version output failures using Linux
 `/dev/full`, absence of development dependencies, and installed
 file bytes against the source package. It never publishes to npm or calls a
