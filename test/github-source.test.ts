@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { Effect, Schema } from "effect";
+import { Effect, Exit, Schema } from "effect";
 import { test } from "@effect/vitest";
 import {
   collectGitHubSource,
@@ -50,6 +50,71 @@ async function incomplete(
   );
   return result;
 }
+
+test("Effect interruption cancels an active collector body read without returning a snapshot", async () => {
+  const f = githubFixture();
+  const controller = new AbortController();
+  const target = `${prefix}/git/blobs/${f.headTree.tree[0]!.sha}`;
+  const calls: string[] = [];
+  let activeRead = false;
+  let cancellations = 0;
+  let completed = false;
+  let transportSignal: AbortSignal | undefined;
+  let response: Response | undefined;
+  const result = await Effect.runPromiseExit(
+    collectGitHubSource(f.policy, request, {
+      transport: async (req) => {
+        const url = new URL(req.url);
+        const path = url.pathname + url.search;
+        calls.push(path);
+        if (path !== target) return f.transport(req);
+        transportSignal = req.signal;
+        let sentChunk = false;
+        response = new Response(
+          new ReadableStream<Uint8Array>(
+            {
+              pull(stream) {
+                if (!sentChunk) {
+                  sentChunk = true;
+                  stream.enqueue(new TextEncoder().encode("{"));
+                  return;
+                }
+                activeRead = true;
+                // Cancel the Effect, not the HTTP signal. With no prefetch,
+                // this pull proves the collector is waiting for body bytes.
+                queueMicrotask(() => controller.abort());
+              },
+              cancel() {
+                cancellations += 1;
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+          { headers: { "content-type": "application/json" } },
+        );
+        return response;
+      },
+    }).pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          completed = true;
+        }),
+      ),
+    ),
+    { signal: controller.signal },
+  );
+  assert.equal(activeRead, true);
+  assert.equal(Exit.hasInterrupts(result), true);
+  assert.equal(Exit.isSuccess(result), false);
+  assert.equal(completed, false);
+  assert.equal(transportSignal?.aborted, true);
+  assert.equal(cancellations, 1);
+  await Promise.resolve();
+  assert.equal(response?.body?.locked, false);
+  assert.equal(calls.at(-1), target);
+  assert.equal(calls.filter((path) => path === target).length, 1);
+  assert.equal(calls.filter((path) => path === prPath).length, 1);
+});
 
 test("acquires exact immutable added/modified/removed/renamed text using merge-base, not base tip", async () => {
   const f = githubFixture();
