@@ -37,3 +37,5 @@ jobs:
         run: bun run demo
       - name: Verify packed CLI in a clean production-only installation
         run: bun run test:package
+      - name: Check bounded admission model and negative controls
+        run: bun run test:model

@@ -88,3 +88,21 @@ A passing review is not a formal GitHub approval, merge permission, or deploymen
 authorization; those actions still require the applicable explicit user approval.
 This is the project's contributor workflow, not a claim that GitHub branch
 protection or a required approval rule has been configured.
+
+## Formal-verification applicability
+
+Every PR must identify the invariants its changes affect and state the evidence
+used to check them, including "none changed" when appropriate. Ordinary changes
+still require code review, focused regressions, relevant property tests and the
+exact-head CI checks. For critical state transitions (admission, replay,
+concurrency, recovery or future publishing), assess whether a formal model or
+proof is warranted; update the applicable model when its contract changes, or
+explain why it does not apply. Do not require a theorem prover for an unrelated
+CLI text or stream-handling change.
+
+The bounded [admission model](formal-verification.md) adds a TLC gate to CI.
+A model-check result applies only to the stated finite model, assumptions and
+invariants. A proof must name its specification, checker and implementation
+connection. AI review, prose arguments and passing tests are not formal proofs;
+model checking does not establish correctness of all TypeScript, Bun or SQLite.
+Never relabel partial, failed or unexecuted verification as a passing gate.
