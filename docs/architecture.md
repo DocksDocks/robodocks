@@ -401,3 +401,29 @@ last with its original final PR/repository recheck. The enclosing interval has
 and discussion are not revalidated after source; changes outside their own
 interval remain possible. `context-observed` is successful bounded acquisition,
 not a review verdict, approval validity or merge eligibility.
+
+## Pending-intent publication preview
+
+`previewPublication` in `src/publication-preview.ts` backs `preview-publication`.
+It accepts operator policy, an existing ledger path and an explicit repository,
+PR, intent ID and attempt. A bounded, read-only selected-observation lookup checks
+integrity and proposed/pending lifecycle. No transaction spans HTTP acquisition.
+It reuses `collect-context` rather than accepting imported evidence, verifies the
+finding against fresh head-side source and current policy, and re-reads the
+selected record before rendering to detect payload or lifecycle changes.
+
+Output is a versioned dry-run PR conversation-comment draft, not an executable
+HTTP request or inline review position. Rendering is deterministic for identical
+validated input, final UTF-8 output is bounded, and source URLs pin the full SHA
+with encoded path components. Untrusted prose is rendered inertly. Context is a
+non-atomic observation which may change after return. Check failures are evidence,
+not a publication decision. No sender, credentials, state transition or schema
+change is added; all publication blockers remain even when a draft is rendered.
+
+Renderer `pr-conversation-v1` represents untrusted fields as JSON strings in
+fixed code blocks, with non-ASCII and hazardous characters displayed as explicit
+escape sequences (for example `\uXXXX`). The raw stored payload is capped at
+256 KiB before decoding; the final comment body is capped at 64 KiB UTF-8 and
+is rejected rather than silently truncated. Marker matches are limited to issue
+conversation-comment IDs and explicitly labeled unverified; no match suppresses
+or acknowledges an intent.

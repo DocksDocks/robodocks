@@ -249,3 +249,20 @@ Admission, replay, recovery, source snapshot identity and review v1 transitions
 are unchanged. The existing formal admission model and negative controls remain
 a gate, not a proof of remote observation consistency. Full strict checks, demo,
 package smoke and exact-published-head hosted CI remain required.
+
+## Publication preview verification
+
+Preview tests use private synthetic ledgers and injected GET-only context,
+including selected-record changes during collection, stale/invalid evidence,
+policy tightening, failed acquisition, deterministic rendering, hostile text and
+bounds. CLI subprocess tests exercise success, nonzero blocked output and strict
+argument handling without live requests. Installed-package smoke renders a
+synthetic pending intent through the installed executable and verifies repeated
+drafts and unchanged database bytes. SQLite coordination-sidecar activity remains
+possible; unchanged ledger data is not a zero-filesystem-effects assertion.
+
+No admission/replay/lifecycle transition changes, so the existing formal model
+and negative controls remain required without a specification change. That model
+does not prove rendering safety, remote atomicity or exactly-once publication.
+Full strict checks, demo, package smoke and exact-published-head review/CI remain
+separate gates; synthetic tests do not establish live GitHub interoperability.

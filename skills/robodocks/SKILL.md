@@ -69,3 +69,12 @@ Retain component intervals/omissions and source snapshot ID. This non-atomic
 bundle is neither full context nor current approval, and it does not change
 source-only `review` admission. A failure stops later stages and yields null
 bundle; do not fill missing evidence with fabricated component JSON.
+
+Use `preview-publication` with an explicitly selected pending intent ID, existing
+private ledger, policy and repository/PR to inspect a deterministic conversation
+comment draft against fresh combined context. Do not substitute imported context
+or prose. Require `draft-rendered` for a usable draft, but retain all publication
+blockers: rendering does not authorize sending, prove delivery or verify bot
+identity. No command sends or acknowledges this draft. A copied marker or
+historical approval is not authority. Keep output private and review for secrets;
+inert text is not redaction. The read-only ledger can use SQLite WAL sidecars.
