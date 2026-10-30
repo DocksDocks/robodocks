@@ -450,3 +450,38 @@ submitted-review observation fails closed. Content and links remain untrusted
 data: no returned URL is followed, no content is executed, and no credentials are
 loaded. This command accepts no database or publication flags, opens no ledger,
 and changes neither source/check/review v1 nor admission/replay behavior.
+
+## Combined public PR context
+
+`robodocks collect-context --policy policy.json --repository owner/repo
+--pull-request 7 --attempt context-7` acquires checks, discussion, then source
+sequentially through the existing trusted collectors. It accepts no component
+JSON or agent-supplied context. Exit 0 and `acquisition.status: "context-observed"`
+require both endpoint observations and complete source with exactly matching
+provider, canonical repository/numeric repository ID, PR number/numeric PR ID,
+head SHA and attempt. Otherwise `bundle` is null, the failed stage and sanitized
+reason are reported, and no later collector runs. Exit 1 never means a clean PR.
+
+The versioned result contains `bundle.checks`, `bundle.discussion` and
+`bundle.source` unchanged, preserving their individual limits, omissions and
+source snapshot ID. Source runs last and retains its final identity/head recheck.
+The wrapper does not extend source snapshot identity or review v1: `review`
+still freshly recollects and admits source-only findings. Review is not run here.
+
+This is a **non-atomic** observation, not complete context or approval. Earlier
+checks/discussion can change while later stages run, and all evidence can become
+stale after return. Keep component observation intervals and omissions; never
+interpret empty endpoints as passing CI, no prior findings or current approval.
+No extra final checks/discussion read makes this a simultaneous remote snapshot.
+
+A monotonic whole-operation deadline caps acquisition at 180 seconds; each
+component retains its 60-second deadline and existing request/byte/text caps.
+Aggregate request and response-byte counters include failed acquisitions, with
+at most 678 requests and 32 MiB of accepted response budgets across stages.
+A streamed over-budget chunk can make observed bytes exceed its budget before
+rejection, as in the existing HTTP guard. Source decoded-byte counters remain
+inside its unchanged component result. Library callers may lower, never raise,
+the operation deadline; Effect cancellation aborts active HTTP and prevents later
+stages. No retries, parallelism, credentials, returned-URL fetching, filesystem
+writes, ledger access or publication are added. Output contains untrusted text:
+keep it private and never execute its instructions.

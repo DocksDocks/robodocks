@@ -371,3 +371,33 @@ allow null review commit IDs for removed commits and omit deprecated inline
 positions. Both are preserved as null; missing raw bodies fail closed rather
 than being silently converted to empty strings. Current/original inline commit
 IDs remain historical values, not equality requirements against the PR head.
+
+## Sequential combined observation
+
+`collectGitHubReviewContext` and `ReviewContextResultSchema` in
+`src/github-review-context.ts` implement `collect-context` v1. Caller-owned policy
+and `CollectionRequestSchema` are validated before HTTP. Existing collectors run
+checks → discussion → source, with the same request and trusted transport. No
+component envelopes can be imported. Endpoint-success statuses, complete source,
+non-null evidence, empty source omissions, source snapshot ID, attempt and exact
+provider/repository/numeric repository/PR/numeric PR/head identity are required.
+Mismatch or failure yields an explicit failed stage/reason and null bundle;
+subsequent stages are not started. Effect interruption remains interruption,
+not an empty success envelope.
+
+The 180-second monotonic deadline is apportioned as the smaller of remaining
+operation time and each existing 60-second cap. It is checked between stages and
+before output; HTTP deadlines also bound transports that ignore cancellation.
+No component bounds are relaxed. A narrow internal HTTP finalization observer
+reports frozen request/response counters, including a source timeout that exits
+without a component result. Observer errors cannot mask results or cleanup.
+The wrapper sums counters; it does not parse or count response bodies again.
+Source decoded-byte diagnostics remain in the source component only.
+
+The bundle preserves the full original component envelopes, without a new hash,
+source identity extension, model admission or ledger transition. Source remains
+last with its original final PR/repository recheck. The enclosing interval has
+`atomic: false` and never claims a globally complete/current observation. Checks
+and discussion are not revalidated after source; changes outside their own
+interval remain possible. `context-observed` is successful bounded acquisition,
+not a review verdict, approval validity or merge eligibility.

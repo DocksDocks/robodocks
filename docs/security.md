@@ -298,3 +298,15 @@ The tool does not claim a complete discussion history or cross-endpoint atomicit
 A failed collection exposes no partial usable context and performs no ledger,
 repository, notification or publication mutation. A future model consumer must
 maintain this data/instruction boundary independently.
+
+## Combined context orchestration
+
+`collect-context` accepts only operator policy and target/attempt, not imported
+component evidence. It reuses the fixed-origin anonymous GET collectors with
+unchanged caps, identities and text trust boundaries. Failure/mismatch produces
+null usable bundle and stops later stages; cancellation aborts active requests.
+No credentials, source execution, ledger, filesystem writes, publisher or external
+mutation are introduced. Returned source and discussion remain untrusted data.
+Identity agreement and source's final recheck do not establish a simultaneous
+snapshot, current approval or a clean review. Earlier evidence may change during
+the overall interval, and all evidence may change after it.

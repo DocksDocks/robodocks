@@ -234,3 +234,18 @@ so the existing formal admission model needs no specification change. It does
 not prove remote observation atomicity or completeness. Full strict tests, demo,
 installed package smoke and the unchanged model/negative controls remain gates;
 local verification is separate from exact-published-head hosted CI.
+
+## Combined-context verification
+
+Focused synthetic collector and subprocess CLI tests cover trusted sequential
+acquisition, identity disagreement between stages, source's final recheck,
+fail-fast/no-later-stage behavior, aggregate resources, whole-operation deadlines
+(including stalled/partial streams), Effect cancellation and rejected imported
+context/unsupported flags. The clean installed artifact exercises all three
+collectors through one `collect-context` command and rejects ledger flags.
+These fixtures do not establish live GitHub interoperability or atomicity.
+
+Admission, replay, recovery, source snapshot identity and review v1 transitions
+are unchanged. The existing formal admission model and negative controls remain
+a gate, not a proof of remote observation consistency. Full strict checks, demo,
+package smoke and exact-published-head hosted CI remain required.

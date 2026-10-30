@@ -369,6 +369,78 @@ try {
   );
   assert.equal(JSON.parse(rejectedDiscussion.stderr).error, "USAGE");
   assert(!existsSync(rejectedDatabase), "Discussion context created a ledger");
+  assert(
+    run(bin, ["collect-context", "--help"]).stdout.includes("collect-context"),
+  );
+  const contextPreload = join(temporary, "context-fetch.ts");
+  writeFileSync(
+    contextPreload,
+    `
+    const sha = "${"a".repeat(40)}", tree = "${"d".repeat(40)}";
+    const repo = {id:71,full_name:"example-owner/example-project",private:false,visibility:"public"};
+    const pr = {id:701,number:7,changed_files:0,title:"Installed context smoke",body:null,head:{sha,repo},base:{sha,repo}};
+    globalThis.fetch = async request => {
+      const url = new URL(request.url);
+      if(url.origin !== "https://api.github.com" || request.method !== "GET" || request.headers.has("authorization") || request.headers.has("cookie")) throw new Error("Unexpected request");
+      const suffix = url.pathname.slice("/repos/example-owner/example-project".length);
+      if(suffix === "") return Response.json(repo);
+      if(suffix === "/pulls/7") return Response.json(pr);
+      if(["/issues/7/comments","/pulls/7/reviews","/pulls/7/comments"].includes(suffix)) return Response.json([]);
+      if(suffix.endsWith("/check-runs")) return Response.json({total_count:0,check_runs:[]});
+      if(suffix.endsWith("/status")) return Response.json({sha,total_count:0,statuses:[]});
+      if(suffix.startsWith("/compare/")) return Response.json({base_commit:{sha},merge_base_commit:{sha},files:[]});
+      if(suffix.startsWith("/git/commits/")) return Response.json({sha,tree:{sha:tree}});
+      if(suffix.startsWith("/git/trees/")) return Response.json({sha:tree,truncated:false,tree:[]});
+      return Response.json({}, {status:404});
+    };
+  `,
+  );
+  const installedContext = JSON.parse(
+    run(process.execPath, [
+      "--preload",
+      contextPreload,
+      bin,
+      "collect-context",
+      "--policy",
+      policy,
+      "--repository",
+      "example-owner/example-project",
+      "--pull-request",
+      "7",
+      "--attempt",
+      "installed-context",
+    ]).stdout,
+  );
+  assert.equal(installedContext.operation, "collect-context");
+  assert.equal(installedContext.acquisition.status, "context-observed");
+  assert.equal(installedContext.bundle.source.acquisition.status, "complete");
+  assert.equal(
+    installedContext.bundle.discussion.context.title,
+    "Installed context smoke",
+  );
+  assert.equal(
+    installedContext.bundle.checks.acquisition.status,
+    "endpoint-observed",
+  );
+  assert.equal(installedContext.observation.atomic, false);
+  const rejectedContext = run(
+    bin,
+    [
+      "collect-context",
+      "--policy",
+      policy,
+      "--repository",
+      "example-owner/example-project",
+      "--pull-request",
+      "7",
+      "--database",
+      rejectedDatabase,
+    ],
+    temporary,
+    1,
+  );
+  assert.equal(JSON.parse(rejectedContext.stderr).error, "USAGE");
+  assert(!existsSync(rejectedDatabase), "Combined context created a ledger");
   const installedPackages = readdirSync(join(temporary, "node_modules"))
     .filter((name) => !name.startsWith("."))
     .sort((a, b) => a.localeCompare(b));

@@ -8,7 +8,12 @@ import {
   SourceError,
   withGitHubHttp,
 } from "./github-http.ts";
-import type { GitHubHttp, GitHubTransport, HttpLimits } from "./github-http.ts";
+import type {
+  GitHubHttp,
+  GitHubTransport,
+  HttpLimits,
+  HttpStats,
+} from "./github-http.ts";
 
 const Id = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
@@ -289,6 +294,8 @@ export function collectGitHubCheckContext(
   options: {
     readonly transport?: GitHubTransport;
     readonly httpLimits?: Partial<HttpLimits>;
+    /** @internal Diagnostics for trusted sequential orchestration. */
+    readonly onStats?: (stats: HttpStats) => void;
   } = {},
 ) {
   return Effect.gen(function* () {
@@ -395,6 +402,7 @@ export function collectGitHubCheckContext(
               }
             },
             limits,
+            options.onStats,
           );
         } catch (error) {
           failure =
