@@ -143,9 +143,48 @@ try {
     "review",
     "backup",
     "restore",
+    "workspace-init",
+    "task-create",
+    "workspace-inventory",
   ]) {
     assert.match(run(bin, [command, "--help"]).stdout, /Usage:/);
   }
+  const workspace = join(temporary, "robodocks-tasks");
+  for (const args of [
+    ["workspace-init", "--root", workspace],
+    ["task-create", "--root", workspace, "--task", "installed-task"],
+  ]) {
+    const result = JSON.parse(run(bin, args).stdout);
+    assert.equal(result.dryRun, true);
+    assert.equal(result.deletionAuthorized, false);
+  }
+  const manifest = join(workspace, "installed-task", "task.json");
+  const manifestBefore = readFileSync(manifest);
+  const inventoryArgs = ["workspace-inventory", "--root", workspace];
+  const inventoryOutput = run(bin, inventoryArgs).stdout;
+  const inventory = JSON.parse(inventoryOutput);
+  assert.equal(inventory.operation, "workspace-inventory");
+  assert.equal(inventory.dryRun, true);
+  assert.equal(inventory.deletionAuthorized, false);
+  assert.equal(inventory.tasks[0].status, "blocked");
+  for (const blocker of [
+    "active-task",
+    "git-state-unverified",
+    "remote-checkpoint-unverified",
+  ]) {
+    assert(inventory.tasks[0].blockers.includes(blocker));
+  }
+  assert.equal(run(bin, inventoryArgs).stdout, inventoryOutput);
+  assert.deepEqual(readFileSync(manifest), manifestBefore);
+  const unsafeWorkspace = run(
+    bin,
+    ["workspace-init", "--root", "/"],
+    temporary,
+    1,
+  );
+  assert.equal(JSON.parse(unsafeWorkspace.stderr).error, "WORKSPACE");
+  const noDeletion = run(bin, [...inventoryArgs, "--delete"], temporary, 1);
+  assert.equal(JSON.parse(noDeletion.stderr).error, "USAGE");
   const policy = join(installed, "examples", "policy.json");
   const input = join(installed, "examples", "review.json");
   const database = join(temporary, "ledger.sqlite");

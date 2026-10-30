@@ -232,3 +232,28 @@ Equivalent hand-created or modified schemas are conservatively rejected: only
 the canonical v1 schema is supported. Checks bound each raw finding payload to
 256 KiB before JSON decoding; observations and SHA-256 input are streamed rather
 than loading an entire 512 MiB ledger into application memory.
+
+## Workspace preview boundary
+
+Workspace roots must be newly created dedicated `robodocks-tasks` directories
+under existing private parents. Root/HOME/ancestor paths, symlink ancestors,
+non-normalized paths and known protected storage components are rejected.
+Creation is exclusive; a failed creation may leave partial metadata for manual
+inspection, never automatic removal. Keep authoritative ledgers, snapshots,
+credentials and irreplaceable artifacts outside disposable task storage.
+
+Metadata is bounded, single-link regular UTF-8 JSON opened without following
+symlinks. Payload scanning flags symlinks, unsupported file types/hard links and
+protected-looking names without following links or reading payload contents.
+Filename protection is only a heuristic: arbitrary credential/artifact names
+cannot be identified universally. No claim of secret detection or complete
+preservation is made. The filesystem owner is trusted; these checks do not
+provide a race-safe security boundary against concurrent hostile writers.
+
+Manifests and ownership UUIDs can be forged or become stale. A completed task
+may still have running processes, unpushed work or sole-copy artifacts; a GitHub
+URL and SHA do not prove remote persistence. Inventory always reports those
+verification gaps. It never executes repository-configured Git hooks, filters
+or fsmonitor because it invokes no Git process at all. There is no live cleanup,
+remote mutation, scheduler, credential loading or permission to delete implied
+by any output status. Do not connect this preview to an automatic remover.
