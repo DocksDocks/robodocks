@@ -630,19 +630,31 @@ export function publishGitHubComment(
     }).pipe(Effect.result);
     if (outcome._tag === "Success")
       return yield* acknowledge(filename, attempt, outcome.success);
-    yield* Effect.scoped(
+    return yield* Effect.scoped(
       Effect.gen(function* () {
         const { db } = yield* acquireStore(filename);
-        yield* storeOperation(() =>
+        return yield* storeOperation(() =>
           db
-            .query(
-              "UPDATE publication_attempts SET status = 'unknown' WHERE intent_id = ? AND status = 'sending'",
-            )
-            .run(request.intentId),
+            .transaction(() => {
+              db.query(
+                "UPDATE publication_attempts SET status = 'unknown' WHERE intent_id = ? AND status = 'sending'",
+              ).run(request.intentId);
+              // Reconciliation may have acknowledged this attempt while POST was
+              // awaiting its lost response. Return the committed state, not an
+              // inferred unknown result when the conditional update did nothing.
+              const current = db
+                .query<PublicationAttempt, [string]>(
+                  "SELECT * FROM publication_attempts WHERE intent_id = ?",
+                )
+                .get(request.intentId);
+              integrity(current);
+              matchAttempt(config, request, current);
+              return attemptResult(current);
+            })
+            .immediate(),
         );
       }),
     );
-    return attemptResult({ ...attempt, status: "unknown" });
   });
 }
 

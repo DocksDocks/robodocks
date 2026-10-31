@@ -144,3 +144,9 @@ reconciliation is complete. No exactly-once delivery or safe retry is claimed.
 A source change after the final check also remains possible. The intentional
 trade-off is safety over liveness: even a reservation followed by a crash before
 any POST remains uncertain rather than being automatically resent.
+
+The uncertain-response result fix does not change any publication transition:
+`sending → unknown` remains conditional and an acknowledged attempt stays
+acknowledged. The implementation now reads its returned result in that same
+transaction. The model does not model API result projection; a deterministic
+lost-response/concurrent-reconciliation regression checks that correspondence.

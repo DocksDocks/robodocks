@@ -659,3 +659,25 @@ test("independent: grant mutation during lease acquisition cannot broaden captur
   );
   assert.equal(f.sent.length, 1);
 });
+
+test("lost POST response returns acknowledgement committed by concurrent reconciliation", async () => {
+  const f = await setup();
+  f.setTransport(async () => {
+    assert.equal(inspect(f.filename).attempt!.status, "sending");
+    f.routes.set(commentsPath, [f.comment()]);
+    const reconciled = await f.reconcile();
+    assert.equal(reconciled.status, "acknowledged");
+    assert.equal(reconciled.commentId, 201);
+    throw new Error("Response lost after concurrent acknowledgement");
+  });
+  const result = await f.publish();
+  assert.equal(inspect(f.filename).attempt!.status, "acknowledged");
+  assert.equal(result.status, "acknowledged");
+  assert.equal(result.commentId, 201);
+  assert.equal(
+    inspect(f.filename).outbox.external_reference,
+    "github-comment:201",
+  );
+  assert.deepEqual(await f.publish(), result);
+  assert.equal(f.sent.length, 1);
+});
