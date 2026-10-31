@@ -297,3 +297,12 @@ and no deploy/release step. Its Worker outbound service rejects network calls.
 `actions/setup-node` is pinned to the verified official
 [v7.1.0 release](https://github.com/actions/setup-node/releases/tag/v7.1.0), commit
 `949feb2413d6458794dcd2491c4babbbce0c15c1`; automatic package-manager caching is off.
+
+## Hosted-pilot local gates
+
+The existing D1 CI job also regenerates the bounded pilot Worker, rejects generated
+source drift, runs local real-D1 tests against the actual generated migration,
+and validates its Worker artifact using the non-private example manifest. These
+checks never provision or deploy a Site and do not establish hosted authentication
+or persistence. Private hosted evidence must be collected separately; no Site
+credentials or private identifiers belong in CI or the public repository.

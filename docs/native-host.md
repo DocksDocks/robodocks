@@ -1,6 +1,8 @@
 # Native-host design and D1 storage prototype
 
-Status: **local-only storage experiment, not an operational publisher**. The
+Status of the original storage slice: **local-only storage experiment, not an operational publisher**.
+The later authorized synthetic hosted slice is described at the end of this page;
+statements below about no hosting refer to that original slice. The
 intended host is a private assistant-native Site, not a Railway service. This
 slice creates no Site, cloud database, deployment, credentials, webhook, schedule,
 or live GitHub request. Existing Bun/SQLite code and its CLI behavior remain
@@ -205,3 +207,15 @@ The tests include local persistence across workerd restart. They do not establis
 hosted power-loss recovery or replica behavior. Lost-response injection wraps an
 actual committed D1 call, not a simulated SQL engine; it tests application
 uncertainty handling, not a real network partition.
+
+## Later slice: owner-private synthetic hosted pilot
+
+The bounded Worker template now lives in `prototype/hosted-pilot/`. It reuses the
+unchanged adapter and adds no GitHub sender or key. Its fresh generated schema,
+finite fixture seed, private-dispatch boundary, single-flight evidence handling
+and exact local/hosted verification limits are documented in the
+[pilot contract](../prototype/hosted-pilot/README.md). In particular this separate
+Drizzle schema is non-STRICT and schema-only; fixture setup inserts active control
+only for an isolated synthetic database and never clears existing quarantine.
+This does not authorize operational production activation, restore, credentials,
+real repository actions or wider sharing.

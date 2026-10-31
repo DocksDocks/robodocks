@@ -476,3 +476,12 @@ without replacing the Bun/SQLite service. Conditional claims and atomic D1
 batches must preserve the publication protocol; no transaction spans an HTTP
 request, and uncertain reservations never become resend permission. Source
 collection, admission, credentials, and hosted endpoints are outside this slice.
+
+## Synthetic hosted adapter boundary
+
+The reusable `prototype/hosted-pilot/` template wraps the unchanged D1 adapter in
+a bounded Worker interface. It does not port the Bun publisher or change default
+runtime behavior. Only an isolated owner-private Sites instance is supported;
+there is no generic SQL, caller-selected target or network sender. Fixed probe
+evidence uses durable single-flight claims and interrupted claims remain uncertain.
+See the [pilot contract](../prototype/hosted-pilot/README.md).

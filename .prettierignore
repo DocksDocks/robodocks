@@ -1,0 +1,4 @@
+# Deterministically generated Worker; CI verifies exact regeneration.
+prototype/hosted-pilot/worker/index.js
+# Immutable generated Drizzle migration metadata; never rewrite after deployment.
+prototype/hosted-pilot/drizzle/meta/

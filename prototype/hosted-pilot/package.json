@@ -1,0 +1,15 @@
+{
+  "name": "robodocks-synthetic-hosted-pilot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/assemble.mjs && bash scripts/build.sh",
+    "validate": "node scripts/validate-artifact.mjs",
+    "test": "node --test worker.test.mjs",
+    "db:generate": "drizzle-kit generate"
+  },
+  "devDependencies": {
+    "drizzle-kit": "0.31.10",
+    "drizzle-orm": "0.45.2"
+  }
+}

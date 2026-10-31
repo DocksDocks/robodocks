@@ -1,0 +1,51 @@
+{
+  "baselineCommit": "e9dac501fa1a1389b97ba75cdd0abf0700b3defb",
+  "baselineTree": "53f264634337498e8d49c70ef2a1763bf4b0ad5d",
+  "scope": "owner-private synthetic-only no-post hosted pilot",
+  "finalWorkerSha256": "5be8b32b68d601490227f1b6905c92654df2268628f9293530db96a651ee7946",
+  "workerInputDigest": "cfdef4919a466a8c4337883064276fdd6c5a7789110acd70d63a34136157965e",
+  "migrationSha256": "08013d0a179e175af7899b2e7d96f1ace8a625c0a4bef4cda6698b4070adcec5",
+  "local": {
+    "workerTests": 11,
+    "priorD1Tests": 16,
+    "rootTests": 375,
+    "rootTestFiles": 26,
+    "rootTypecheckedFiles": 555,
+    "format": "passed; deterministic generated Worker and immutable migration metadata explicitly excluded",
+    "demo": "passed",
+    "packageMembers": 31,
+    "formalModels": "passed with all six negative controls"
+  },
+  "hosted": {
+    "firstObservedAt": "2026-10-31T16:29:47.145Z",
+    "secondObservedAt": "2026-10-31T16:34:48.534Z",
+    "firstWorkerInputDigest": "c918c25f0156ef44db3496c52967c63b03d3ffca6c36d5cba623325245ecb333",
+    "anonymousApiStatus": [401, 401],
+    "serviceApiStatus": [200, 200],
+    "visitorIdentity": "not supplied by service access",
+    "ownerOnlyPolicy": "confirmed before and after publication; no added users/groups/editors",
+    "ownerBrowserLogin": "not verified: browser required sign-in; no credentials entered",
+    "firstConcurrentRequests": 8,
+    "firstReservationWinners": 1,
+    "unknownNoRetry": true,
+    "actualSqlConstraintFailureRollback": true,
+    "acknowledgementBatchRollback": true,
+    "lostResponse": "committed-write then thrown-result injection, not network partition",
+    "newDeploymentSameSiteAndBinding": true,
+    "preUpgradeStateAndEvidenceExactEquality": true,
+    "freshAdditionalFiniteFixture": "singleflight",
+    "secondConcurrentProbeRequests": 8,
+    "secondProbeExecutions": 1,
+    "secondPersistedReplays": 7,
+    "oldReservationReplay": false
+  },
+  "limits": [
+    "Owner browser sign-in remains unverified; private policy and service access are distinct evidence.",
+    "Hosted parallel requests were independently issued; measured server overlap/multi-isolate execution is not established.",
+    "Initial rollback and failure probes were executed on the first build; second build preserved those records and separately exercised fresh singleflight.",
+    "Interrupted singleflight claims were tested locally only.",
+    "Generated hosted schema is non-STRICT with explicit constraints; not identical to original STRICT migration.",
+    "Redeployment persistence is not disaster recovery, replica or power-loss proof.",
+    "No GitHub key, live sender, admission activation, paid addon, domain or schedule configured."
+  ]
+}
