@@ -1,0 +1,16 @@
+{
+  "name": "robodocks-d1-prototype-tests",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "test": "node --test *.test.mjs",
+    "typecheck": "bun check --no-script"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261031.1",
+    "miniflare": "4.20260730.0"
+  }
+}

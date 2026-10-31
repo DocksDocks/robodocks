@@ -39,3 +39,32 @@ jobs:
         run: bun run test:package
       - name: Check bounded admission model and negative controls
         run: bun run test:model
+  d1-prototype:
+    name: Isolated Workers and D1 prototype
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Check out candidate without retained credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node for the local emulator only
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.1"
+          package-manager-cache: false
+      - name: Set up Bun for strict prototype checking
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - name: Install pinned emulator without lifecycle scripts
+        working-directory: prototype/d1
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check prototype types
+        working-directory: prototype/d1
+        run: npm run typecheck
+      - name: Exercise local workerd and D1 with no external Worker requests
+        working-directory: prototype/d1
+        run: npm test

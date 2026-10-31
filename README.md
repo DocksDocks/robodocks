@@ -572,3 +572,12 @@ re-admission into a different database cannot be made exactly-once by local SQL:
 the trusted host must retain authoritative history and must not use a fresh ledger
 to bypass uncertainty. Production credentials, App installation and durable-host
 provisioning remain separate operational authorization and verification steps.
+
+## Native-host storage experiment
+
+The [native-host design](docs/native-host.md) explores a private assistant-native
+Workers/D1 host through an isolated, local-only publication-state adapter.
+It does not select a new runtime for the CLI, port the publisher, provision a
+Site, load keys, or permit live posting. Its schema starts quarantined; synthetic
+tests are not an activation procedure. Bun/SQLite remains the operational code
+path. The design records consistency, recovery, and credential trust limits.

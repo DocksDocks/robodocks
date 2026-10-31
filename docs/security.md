@@ -365,3 +365,12 @@ are outside local guarantees. The host's authoritative-ledger approval attestati
 is necessary but not a substitute for quarantine. Operational App registration,
 installation grants, secret storage and durable hosting have not been provisioned
 or verified by this code or its injected tests.
+
+## Native-host experiment boundary
+
+The [local D1 prototype](native-host.md) is quarantined by default, has no
+unquarantine API or live transport, and does not authorize production activation.
+Private Site access would not replace operation-specific GitHub authority.
+Runtime secrets are accessible to deployable Worker code, not a verified
+sign-only vault. Restore fencing must be independent of the database being
+restored, because rollback can erase deduplication history and quarantine state.

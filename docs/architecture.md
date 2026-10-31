@@ -468,3 +468,11 @@ candidates are quarantined before promotion; v1 artifacts retain their original
 schema and all later migrations quarantine. Reconciliation cannot clear the flag.
 The finite Publication model covers reservation/concurrency/uncertain outcomes;
 it does not prove filesystem, transport, token issuance or stale-backup safety.
+
+## Native-host storage prototype
+
+The isolated [Workers/D1 design](native-host.md) tests publication-state SQL
+without replacing the Bun/SQLite service. Conditional claims and atomic D1
+batches must preserve the publication protocol; no transaction spans an HTTP
+request, and uncertain reservations never become resend permission. Source
+collection, admission, credentials, and hosted endpoints are outside this slice.
