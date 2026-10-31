@@ -1,0 +1,280 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "d08ffd88-1052-4470-ba4c-bd7317916bdb",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "native_attempts": {
+      "name": "native_attempts",
+      "columns": {
+        "intent_id": {
+          "name": "intent_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "proposal": {
+          "name": "proposal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "comment_id": {
+          "name": "comment_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "native_attempts_intent_id_native_outbox_id_fk": {
+          "name": "native_attempts_intent_id_native_outbox_id_fk",
+          "tableFrom": "native_attempts",
+          "tableTo": "native_outbox",
+          "columnsFrom": [
+            "intent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "attempt_json": {
+          "name": "attempt_json",
+          "value": "json_valid(\"native_attempts\".\"proposal\")"
+        },
+        "attempt_status": {
+          "name": "attempt_status",
+          "value": "\"native_attempts\".\"status\" IN ('sending','unknown','acknowledged')"
+        },
+        "positive_comment": {
+          "name": "positive_comment",
+          "value": "\"native_attempts\".\"comment_id\" > 0"
+        },
+        "attempt_reference": {
+          "name": "attempt_reference",
+          "value": "(\"native_attempts\".\"status\" = 'acknowledged' AND \"native_attempts\".\"comment_id\" IS NOT NULL) OR (\"native_attempts\".\"status\" IN ('sending','unknown') AND \"native_attempts\".\"comment_id\" IS NULL)"
+        }
+      }
+    },
+    "native_control": {
+      "name": "native_control",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "quarantined": {
+          "name": "quarantined",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "control_singleton": {
+          "name": "control_singleton",
+          "value": "\"native_control\".\"id\" = 1"
+        },
+        "control_quarantined": {
+          "name": "control_quarantined",
+          "value": "\"native_control\".\"quarantined\" IN (0,1)"
+        }
+      }
+    },
+    "pilot_evidence": {
+      "name": "pilot_evidence",
+      "columns": {
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "evidence": {
+          "name": "evidence",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "evidence_json": {
+          "name": "evidence_json",
+          "value": "json_valid(\"pilot_evidence\".\"evidence\")"
+        }
+      }
+    },
+    "native_findings": {
+      "name": "native_findings",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "finding_status": {
+          "name": "finding_status",
+          "value": "\"native_findings\".\"status\" IN ('proposed','published','closed')"
+        }
+      }
+    },
+    "native_transition_guard": {
+      "name": "native_transition_guard",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "impossible_transition_guard": {
+          "name": "impossible_transition_guard",
+          "value": "\"native_transition_guard\".\"id\" = 1"
+        }
+      }
+    },
+    "native_outbox": {
+      "name": "native_outbox",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "finding_id": {
+          "name": "finding_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "proposal": {
+          "name": "proposal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "external_reference": {
+          "name": "external_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "outbox_finding": {
+          "name": "outbox_finding",
+          "columns": [
+            "finding_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "native_outbox_finding_id_native_findings_id_fk": {
+          "name": "native_outbox_finding_id_native_findings_id_fk",
+          "tableFrom": "native_outbox",
+          "tableTo": "native_findings",
+          "columnsFrom": [
+            "finding_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "outbox_json": {
+          "name": "outbox_json",
+          "value": "json_valid(\"native_outbox\".\"proposal\")"
+        },
+        "outbox_status": {
+          "name": "outbox_status",
+          "value": "\"native_outbox\".\"status\" IN ('pending','acknowledged')"
+        },
+        "outbox_reference": {
+          "name": "outbox_reference",
+          "value": "(\"native_outbox\".\"status\" = 'pending' AND \"native_outbox\".\"external_reference\" IS NULL) OR (\"native_outbox\".\"status\" = 'acknowledged' AND \"native_outbox\".\"external_reference\" IS NOT NULL)"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

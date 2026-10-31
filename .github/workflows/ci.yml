@@ -68,3 +68,17 @@ jobs:
       - name: Exercise local workerd and D1 with no external Worker requests
         working-directory: prototype/d1
         run: npm test
+      - name: Regenerate bounded pilot Worker and reject source drift
+        working-directory: prototype/hosted-pilot
+        run: |
+          node scripts/assemble.mjs
+          git diff --exit-code -- worker/index.js
+      - name: Exercise actual pilot Worker and generated migration locally
+        working-directory: prototype/hosted-pilot
+        run: npm test
+      - name: Validate reusable Worker artifact without a private Site identity
+        working-directory: prototype/hosted-pilot
+        run: |
+          cp .openai/hosting.example.json .openai/hosting.json
+          bash scripts/build.sh
+          node scripts/validate-artifact.mjs

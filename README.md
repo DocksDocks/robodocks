@@ -581,3 +581,11 @@ It does not select a new runtime for the CLI, port the publisher, provision a
 Site, load keys, or permit live posting. Its schema starts quarantined; synthetic
 tests are not an activation procedure. Bun/SQLite remains the operational code
 path. The design records consistency, recovery, and credential trust limits.
+
+## Synthetic owner-private hosted pilot
+
+A separate reusable Worker/D1 pilot is now available under `prototype/hosted-pilot/`.
+It serves only fixed synthetic fixtures and a read-only status UI; it contains no
+GitHub key, sender, operational activation or live-post path. Its private deployed
+instance is separate from public source. Local checks and hosted evidence have
+distinct meanings; see [pilot instructions](prototype/hosted-pilot/README.md).

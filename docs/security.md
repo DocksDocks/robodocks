@@ -374,3 +374,14 @@ Private Site access would not replace operation-specific GitHub authority.
 Runtime secrets are accessible to deployable Worker code, not a verified
 sign-only vault. Restore fencing must be independent of the database being
 restored, because rollback can erase deduplication history and quarantine state.
+
+## Isolated hosted pilot exception
+
+The later `prototype/hosted-pilot/` slice permits a separately authorized private
+synthetic Site, not an operational deployment of the publisher. Sites owner-only
+dispatch is the access boundary; service credentials do not establish visitor
+identity. The public template has no private instance identifiers or secrets.
+Fixed fixture seed may insert `quarantined=0` only into a fresh synthetic control
+row and cannot clear an existing quarantine. Never connect this template to an
+operational ledger or widen sharing. No secret upload or live GitHub POST is authorized.
+See [pilot limits](../prototype/hosted-pilot/README.md).
