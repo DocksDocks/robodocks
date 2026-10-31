@@ -513,6 +513,42 @@ try {
     assert.equal(rejected.stdout, "");
     assert.equal(JSON.parse(rejected.stderr).error, "USAGE");
   }
+  const publisherSmoke = join(temporary, "publisher-smoke.ts");
+  writeFileSync(
+    publisherSmoke,
+    `
+    import assert from "node:assert/strict";
+    import { readFileSync } from "node:fs";
+    import { Effect } from "effect";
+    import { initializePublicationLedger } from "robodocks/src/storage.ts";
+    import { withReviewer } from "robodocks/src/reviewer.ts";
+    import { publishGitHubComment } from "robodocks/src/github-app-publisher.ts";
+    const policy = JSON.parse(readFileSync(${JSON.stringify(policy)}, "utf8"));
+    const input = JSON.parse(readFileSync(${JSON.stringify(input)}, "utf8"));
+    const filename = ${JSON.stringify(join(temporary, "publication.sqlite"))};
+    await Effect.runPromise(initializePublicationLedger(filename));
+    const plan = await Effect.runPromise(withReviewer(policy,filename,r=>r.plan(input)));
+    const request = {repository:input.context.repository,pullRequest:7,attemptId:"installed-publish",intentId:plan.intents[0].id};
+    const configuration = {repository:request.repository,repositoryId:71,appId:81,installationId:91,botUserId:101};
+    let posts=0;
+    const host = {
+      configuration, readTransport:globalThis.fetch,
+      authorizeOneIntent:async ({body,...binding})=>({...binding,expiresAt:Date.now()+60000,authoritativeLedger:true}),
+      acquireLease:async ()=>({identity:{...configuration,expiresAt:Date.now()+60000,issuesWrite:true},transport:async request=>{
+        posts++; assert.equal(request.method,"POST");
+        assert.equal(request.url,"https://api.github.com/repos/example-owner/example-project/issues/7/comments");
+        return Response.json({id:501,body:(await request.json()).body,issue_url:"https://api.github.com/repos/example-owner/example-project/issues/7",user:{id:101,type:"Bot"}},{status:201});
+      }})
+    };
+    const missing = await Effect.runPromise(publishGitHubComment(policy,filename,request,{...host,readTransport:undefined}).pipe(Effect.result));
+    assert.equal(missing._tag,"Failure"); assert.equal(missing.failure.code,"PUBLICATION_HOST");
+    const sent=await Effect.runPromise(publishGitHubComment(policy,filename,request,host));
+    assert.equal(sent.status,"acknowledged"); assert.equal(sent.commentId,501);
+    const repeat=await Effect.runPromise(publishGitHubComment(policy,filename,request,host));
+    assert.deepEqual(repeat,sent); assert.equal(posts,1);
+  `,
+  );
+  run(process.execPath, ["--preload", previewPreload, publisherSmoke]);
   const installedPackages = readdirSync(join(temporary, "node_modules"))
     .filter((name) => !name.startsWith("."))
     .sort((a, b) => a.localeCompare(b));

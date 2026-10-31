@@ -45,3 +45,32 @@ for pair in 'SkipSourceGate NoInvalidAdmission' \
   fi
 done
 printf 'Admission model and all three deliberate invariant violations checked.\n'
+
+cp -- "$root/formal/Publication.tla" "$root/formal/Publication.cfg" "$tmp/"
+run_publication() {
+  timeout 60s java -XX:+UseParallelGC -Xmx512m -cp "$jar" tlc2.TLC \
+    -workers 1 -seed 1 -fp 0 -metadir "$tmp/states-$1" \
+    -config "$1.cfg" Publication > "$1.log" 2>&1
+}
+status=0
+run_publication Publication || status=$?
+cat Publication.log
+if [[ "$status" != 0 ]]; then
+  printf 'Publication baseline failed with exit %s\n' "$status" >&2
+  exit 1
+fi
+grep -Fq 'Model checking completed. No error has been found.' Publication.log
+for pair in 'SkipReservation ReservedBeforePost' \
+            'RetryUnknown AtMostOnePost' \
+            'AcceptSpoof TrustedAcknowledgement'; do
+  read -r mutation invariant <<< "$pair"
+  sed "s/$mutation = FALSE/$mutation = TRUE/" Publication.cfg > "$mutation.cfg"
+  status=0
+  run_publication "$mutation" || status=$?
+  cat "$mutation.log"
+  if [[ "$status" != 12 ]] || ! grep -Fq "Invariant $invariant is violated." "$mutation.log"; then
+    printf 'Expected a checked %s counterexample; got exit %s\n' "$invariant" "$status" >&2
+    exit 1
+  fi
+done
+printf 'Publication model and all three deliberate invariant violations checked.\n'

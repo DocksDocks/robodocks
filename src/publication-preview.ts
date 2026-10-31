@@ -32,7 +32,7 @@ export const PUBLICATION_BLOCKERS = [
 ] as const;
 
 // A single bounded, owned observation. Close this scope before any HTTP work.
-function readIntent(
+export function readIntent(
   filename: string,
   request: typeof PublicationPreviewRequestSchema.Type,
 ) {

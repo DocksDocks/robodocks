@@ -266,3 +266,14 @@ and negative controls remain required without a specification change. That model
 does not prove rendering safety, remote atomicity or exactly-once publication.
 Full strict checks, demo, package smoke and exact-published-head review/CI remain
 separate gates; synthetic tests do not establish live GitHub interoperability.
+
+## Publisher verification boundary
+
+Publisher tests inject all read and POST transports and use disposable ledgers;
+CI does not load installation credentials or perform GitHub writes. Coverage
+includes single-intent identity/approval/expiry/evidence checks, reservation races,
+lost responses, persistence across reopen, positive-only reconciliation, spoofed
+and ambiguous comments, bounded response handling, interruption, local ack failure,
+quarantined migration and recovery. The Publication TLC model and negative controls
+run alongside Admission. Neither these tests nor TLC establish live GitHub App
+interoperability, credential issuance, hosting durability or exactly-once delivery.
