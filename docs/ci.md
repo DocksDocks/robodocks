@@ -277,3 +277,23 @@ and ambiguous comments, bounded response handling, interruption, local ack failu
 quarantined migration and recovery. The Publication TLC model and negative controls
 run alongside Admission. Neither these tests nor TLC establish live GitHub App
 interoperability, credential issuance, hosting durability or exactly-once delivery.
+
+## Native-host prototype evidence
+
+The [D1 experiment](native-host.md) requires real local Miniflare/workerd tests
+for conditional claims, concurrency, rollback, acknowledgement integrity and
+quarantine; a mocked D1 API alone is insufficient compatibility evidence. Report
+actual emulator versions and commands, and distinguish local results from hosted
+verification. The existing publication model contract is unchanged, but its
+abstract transitions do not prove D1 implementation correctness. Retain full
+Bun checks, package/demo gates, TLC/negative controls, and independent review.
+
+The separate `d1-prototype` job installs only the prototype's locked dev
+dependencies with `npm ci --ignore-scripts --no-audit --no-fund`, then runs its
+strict Bun type check and Node-driven Miniflare tests. Node 24.22.1 is emulator
+tooling only; the installed CLI still uses Bun. The job has a five-minute timeout,
+read-only repository permissions, no retained checkout credentials, no secrets,
+and no deploy/release step. Its Worker outbound service rejects network calls.
+`actions/setup-node` is pinned to the verified official
+[v7.1.0 release](https://github.com/actions/setup-node/releases/tag/v7.1.0), commit
+`949feb2413d6458794dcd2491c4babbbce0c15c1`; automatic package-manager caching is off.
