@@ -257,6 +257,10 @@ behind a small Effect resource boundary. See the
 
 ## Architecture and operational limits
 
+See the [GitHub App pilot readiness checklist](docs/pilot-readiness.md) for
+proposed registration scope, required host evidence and separate approval gates.
+This checklist does not provision or authorize live operation.
+
 Read [architecture](docs/architecture.md), [security](docs/security.md), and
 [CI](docs/ci.md). AGENTS.md points to these canonical documents rather than
 maintaining another instruction tree.
