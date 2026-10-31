@@ -216,6 +216,19 @@ function makeReviewer(
               );
               return;
             }
+            const version = db
+              .query<{ user_version: number }, []>("PRAGMA user_version")
+              .get()?.user_version;
+            requireCondition(
+              version !== 2 ||
+                !db
+                  .query(
+                    "SELECT intent_id FROM publication_attempts WHERE intent_id = ?",
+                  )
+                  .get(intentId),
+              "PUBLICATION_RECONCILIATION_REQUIRED",
+              "Publisher attempts require authenticated external reconciliation",
+            );
             db.query(
               "UPDATE outbox SET status = 'acknowledged', external_reference = ? WHERE id = ?",
             ).run(externalReference, intentId);

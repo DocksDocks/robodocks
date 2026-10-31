@@ -53,3 +53,10 @@ The installed smoke also exercises `preview-publication` against a synthetic
 pending ledger intent and fresh synthetic combined context. It verifies
 conversation-draft output, deterministic repetition, no ledger-byte changes, and
 rejection of write/import flags. This is not a real publication or bot setup test.
+
+The installed-artifact smoke also imports the opt-in App publisher library from
+the production-only tarball, explicitly initializes a disposable v2 ledger and
+uses synthetic injected transports for one POST, acknowledgement and deduplicated
+replay. Missing read transport is rejected rather than falling back to networking.
+The preview/CLI remains disabled and rejects publication/token flags. No App,
+credential or live GitHub write is used by this gate.

@@ -10,8 +10,9 @@ This starter **does not discover bugs or perform AI code reviews yet**. It accep
 proposed findings, validates their structure and cited evidence, and reserves
 structured publication intents in a local SQLite ledger. External agents can now
 submit findings through a trusted adapter that freshly recollects public GitHub
-source; the legacy plan command remains a fixture harness. It cannot publish
-comments, open issues, modify reviewed source, merge, or deploy.
+source; the legacy plan command remains a fixture harness. The CLI cannot publish
+comments, open issues, modify reviewed source, merge, or deploy. A separately
+opted-in library publisher is described below; it has no default live transport.
 
 - Operator-owned repository allowlist and publication-disabled policy.
 - Exact repository, pull request, SHA, path, line, and evidence checks.
@@ -515,3 +516,55 @@ disabled, verified bot/installation identity and scoped credentials absent,
 uncertain-write reconciliation unimplemented, and durable-host/recovery guarantees
 unverified. Keep the draft private: inert rendering is not secret redaction,
 factual review or a guarantee that publication would be safe.
+
+## Opt-in GitHub App publisher library
+
+`src/github-app-publisher.ts` provides actual one-intent PR conversation-comment
+publication and positive-only reconciliation. This is **not a CLI command** and
+does not enable the read-only policy or `preview-publication` to send. It never
+registers/installs an App, obtains credentials, reads environment tokens, posts
+reviews, edits comments, merges, or deploys.
+
+The trusted application host supplies explicit configuration (canonical repository,
+numeric repository/App/installation/bot IDs), an injected read transport, a
+short-lived installation credential lease with a scoped POST transport, and an
+`authorizeOneIntent` callback. The callback must obtain explicit operator approval
+for the supplied exact intent, body digest, renderer, repository/PR numeric IDs,
+and head; return that binding with an expiry and authoritative-ledger attestation.
+These are trusted **code** callbacks, not agent/repository JSON inputs. The issuer
+must verify installation/token identity and `issues:write` permission; this library
+does not authenticate installation tokens via an invented user endpoint. No
+credential material is persisted or returned. An initial deployment may configure
+only `DocksDocks/robodocks`; no repository-specific behavior is hard-coded.
+
+Initialize a new private ledger explicitly with `initializePublicationLedger` from
+`src/storage.ts`, then admit source-bound reviews through the normal reviewer.
+`publishGitHubComment(policy, filename, request, host)` requires exactly one
+`{repository, pullRequest, attemptId, intentId}`. It recollects source/check/discussion
+evidence before approval and again afterward, validates current evidence/policy,
+and durably reserves the immutable body and target **before** its single POST.
+The returned status is `sending`, `unknown`, or `acknowledged`. A pre-existing
+attempt never sends again, including after interruption or expiry. A valid 201
+acknowledges the attempt and existing outbox/finding in one transaction.
+
+Use `reconcileGitHubComment(policy, filename, request, host)` after an uncertain
+outcome. It only acknowledges one exact body from the configured numeric bot ID
+on the bound numeric repository/PR. Zero/multiple matches, copied markers,
+truncated reads and unavailable evidence do not prove non-delivery or permit a
+retry. A head change after acquisition remains a race; the comment identifies the
+reviewed head, not an atomic whole-PR approval. Rendering is inert, **not redaction**.
+
+### Migration and recovery are fail-closed
+
+Ordinary storage, preview and inspection do not upgrade v1. Explicit
+`migratePublicationLedger(filename)` transactionally adds v2 history but quarantines
+**all** legacy ledgers. Existing intents remain readable, not sendable. There is
+no unquarantine API in this slice. Existing v1 backup/restore stays v1 and any later
+migration is quarantined. All v2 backup/restore outputs retain attempts and are
+quarantined too, while the source remains unchanged. Reconciliation is allowed in
+quarantine; new sending is not. Only exclusive initialization at a fresh nonexistent
+path creates an active v2 ledger. Raw copies, filesystem rollback, host loss or
+re-admission into a different database cannot be made exactly-once by local SQL:
+the trusted host must retain authoritative history and must not use a fresh ledger
+to bypass uncertainty. Production credentials, App installation and durable-host
+provisioning remain separate operational authorization and verification steps.

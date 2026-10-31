@@ -27,8 +27,8 @@ project's own isolated CI tests, never by interpreting a review fixture.
   Adapters must supply canonical names. Active policy also filters snapshots and
   gates acknowledgement/closure of stored findings. Explicit inspection also
   requires a single allowed repository and SQL-bound status/page limits.
-- Only read-only / publication-disabled policy. Local ledger writes are explicit
-  and separate from external repository permissions.
+- The core/CLI policy remains read-only / publication-disabled. Local ledger
+  writes and the opt-in library's separate one-intent grant are distinct from it.
 - Full lowercase SHA; finding repo, PR, and head must exactly match context.
 - Normalized relative POSIX source paths; no traversal, absolute paths, drive
   prefixes, backslashes, or control characters. Source paths are never opened.
@@ -110,9 +110,9 @@ coordination, and storage-device durability guarantees are outside this starter.
   adapter derives it from fresh GitHub acquisition instead. A future
   publisher must refetch the target and revalidate queued intents immediately
   before writing; a later head change remains an external race.
-- Local atomic transactions do not make remote publication exactly-once. There
-  is no publisher. A future adapter needs explicit write authority and remote
-  reconciliation after uncertain API outcomes.
+- Local atomic transactions do not make remote publication exactly-once. The
+  opt-in library below requires separate explicit write authority and positive
+  reconciliation after uncertain API outcomes; no CLI publisher is enabled.
 - IDs represent exact source observations, not semantic bugs. A new head, changed
   location, or changed excerpt can produce another proposal. Automatic public
   follow-ups require separate cross-commit reconciliation and verification.
@@ -178,7 +178,7 @@ can bypass this workflow or alter its database; the skill is guidance, not a
 sandbox or a permission grant.
 
 A head change after the final collection check remains possible. This is only
-local dry-run admission, not publication authorization. A future publisher must
+local dry-run admission, not publication authorization. The opt-in publisher must
 revalidate immediately before any remote write and reconcile uncertain outcomes.
 The response is copied before asynchronous acquisition, and context is rebuilt
 only from fresh head-side files. Unknown fields, unsupported scope, before-side
@@ -329,3 +329,39 @@ observations, never authentication, acknowledgement or semantic deduplication.
 Every result preserves explicit missing identity/credentials, uncertain-write
 reconciliation and durable-host/recovery blockers. Fresh observations remain
 non-atomic and cannot prevent a remote or local change after the final check.
+
+## Opt-in publisher trust boundary
+
+The previous no-publisher statements describe CLI/dry-run behavior; the separate
+`github-app-publisher.ts` library can POST exactly one PR conversation comment
+through a **required injected host transport**. It has no default live transport,
+credential loader or CLI activation. Tests use only synthetic transports. The
+read-only policy itself never becomes write authority.
+
+Trusted host code attests the installation/App/bot/repository IDs, short-lived
+credential expiry and `issues:write`, and obtains explicit approval bound to the
+exact proposal. The host must ensure the scoped transport actually uses that
+attested credential; type/schema validation alone cannot verify token provenance.
+Agent output, copied configuration, comments and repository JSON do not invoke
+these callbacks or grant authority. No arbitrary URLs or returned links are used
+for POST; the fixed GitHub.com issue-comment endpoint forbids redirects/cookies.
+The library validates the response's numeric bot ID/type, issue URL, exact body
+and positive numeric comment ID. Response bodies are streamed under a 128 KiB
+limit and a 10-second send deadline, with interruption/stream cancellation and
+sanitized failure states. No response text or credential is logged.
+
+A persisted unique reservation precedes network effects. Any ambiguity, including
+an HTTP error, a lost response, timeout, interruption or local acknowledgement
+failure, consumes the send opportunity. There are no automatic retries, even for
+nominally safe HTTP failures. Positive reconciliation is not non-delivery proof;
+missing/edited/deleted/spoofed or duplicate comments never unlock sending. This
+provides at most one local POST invocation per retained intent, not exactly-once
+remote execution or protection against malicious host code/database modification.
+
+Restored v2 artifacts and every migrated v1 ledger are durably quarantined from
+new sends. No clearance API exists. Fresh v2 initialization must not be used to
+bypass uncertain history; filesystem rollback/raw copies and multi-host retention
+are outside local guarantees. The host's authoritative-ledger approval attestation
+is necessary but not a substitute for quarantine. Operational App registration,
+installation grants, secret storage and durable hosting have not been provisioned
+or verified by this code or its injected tests.

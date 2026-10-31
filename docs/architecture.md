@@ -104,8 +104,9 @@ replay. Only acknowledged observations may close. Closure is not a verified fix,
 does not reopen observations, and does not automatically create follow-up work.
 
 SQLite transactions provide local atomicity and durable deduplication, **not
-exactly-once GitHub publication**. A future publisher still needs explicit write
-authority, fresh-head checks, safe rendering, and uncertain-write reconciliation.
+exactly-once GitHub publication**. The opt-in publisher described below requires
+separate explicit write authority, fresh-head checks, inert rendering and
+uncertain-write reconciliation.
 
 ## Separate bounded inspection
 
@@ -427,3 +428,43 @@ escape sequences (for example `\uXXXX`). The raw stored payload is capped at
 is rejected rather than silently truncated. Marker matches are limited to issue
 conversation-comment IDs and explicitly labeled unverified; no match suppresses
 or acknowledges an intent.
+
+## Explicit App publication state machine (library only)
+
+The existing v1 planner/preview remain publication-disabled. The new library
+`github-app-publisher.ts` requires trusted host callbacks and explicit immutable
+one-intent approval; no CLI command imports a sender. It uses collector-owned
+fresh context, reads the pending observation again under the reservation lock,
+and rechecks lease/approval expiry at reservation and immediately before POST.
+A transport is required at runtime; omission never falls back to live fetch.
+
+Schema v2 adds `publication_attempts` (unique intent foreign key, immutable numeric
+target/identity, head, body/digest/renderer, status and optional comment ID) and
+`publication_control` (durable quarantine). Explicit fresh initialization creates
+active v2. Explicit v1 migration is transactional and always quarantines. Ordinary
+openers understand both versions without upgrading them. A native synchronous
+`BEGIN IMMEDIATE` serializes competing reservations; only the insert winner sends.
+No database transaction spans asynchronous work.
+
+Transitions: absent → sending (durable reservation) → acknowledged (validated
+201 plus atomic outbox/finding acknowledgement), or sending → unknown on a failed
+external result. A crash/interrupt/ack-transaction failure may retain sending;
+this is uncertain, not retryable. Both sending and unknown may become acknowledged
+only with exact positive external evidence. A late valid response can acknowledge
+an unknown attempt; already-acknowledged replay must retain the same comment ID.
+No sending/unknown state returns to absent and no expiry creates a second sender.
+Legacy manual `recordPublication` cannot acknowledge an outstanding publisher
+attempt. There is no automatic drain, retry, update, delete or lease takeover.
+
+Reconciliation acquires bounded canonical conversation endpoints, verifies numeric
+target and bot identity plus exact stored body, and requires exactly one match.
+Marker strings and display logins confer no ownership. Endpoint failure, hidden
+or missing comments, changed bodies and multiple matches leave state uncertain.
+The immutable reviewed head is retained even if the current head later changes.
+
+Recovery validates attempt identity, digest, numeric fields and outbox/finding
+state coupling in addition to the existing ledger checks. v2 backup/restore
+candidates are quarantined before promotion; v1 artifacts retain their original
+schema and all later migrations quarantine. Reconciliation cannot clear the flag.
+The finite Publication model covers reservation/concurrency/uncertain outcomes;
+it does not prove filesystem, transport, token issuance or stale-backup safety.

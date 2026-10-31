@@ -77,10 +77,70 @@ privileged callers that can modify the ledger directly.
 
 A source/head change **after** the final collection check remains possible and
 is intentionally not forbidden by this model. The gate means valid at admission's
-source-check point, not current forever. There is no publisher. Remote retries,
-uncertain outcomes, notifications and exactly-once delivery require a different
-model and concrete reconciliation implementation before any such claim.
+source-check point, not current forever. The admission model does not cover publication. The separate publication
+model below addresses durable send reservation and uncertain outcomes, without
+claiming exactly-once delivery or automatic retries.
 
 A successful TLC run means no listed invariant violation was found in this
 finite abstract state space. It is not an unbounded theorem, a verified compiler,
 a proof that a reported code defect is real, or permission to approve/merge.
+
+## Publication state-machine applicability
+
+The library-only publisher adds the separate `formal/Publication.tla` bounded
+model. `test:model` checks both models and their separate negative controls.
+Publication changes durable and externally observable state, so the admission
+model alone is insufficient. The new model checks one intent, two concurrent
+workers, two immutable body/target/authority bindings and two comment identities.
+The finite binding values abstract the entire frozen tuple, not only body text.
+
+`Reserve` represents the unique, immediate transaction that persists `sending`
+and the immutable binding before the winner receives a volatile send permit.
+`Post` consumes that permit and may either deliver a comment or fail without
+one. A response can be lost independently of delivery: the remote comment may
+exist while the durable state stays `sending` or becomes `unknown`. `Crash`
+discards a permit without erasing durable history, including a crash before the
+POST. Recovery never recreates a permit. `Acknowledge` represents either a valid
+response or later exact-positive reconciliation; it requires a matching actual
+remote comment and trusted positive observation. Inconclusive observations and
+same-ID acknowledgement replays are stuttering steps. No fairness or eventual
+acknowledgement is promised.
+
+The checked safety invariants are:
+
+- `ReservedBeforePost`: every POST had a durable authorized reservation.
+- `AtMostOnePost`: at most one POST per intent, including concurrent callers,
+  crashes, response loss and uncertain outcomes.
+- `TrustedAcknowledgement`: acknowledgement requires an exact positive match,
+  not a copied marker, wrong author, missing result or ambiguous duplicate.
+- `FrozenIdentity`: the reserved binding and acknowledged numeric identity do
+  not change.
+- `UniqueWinner`: only one worker holds the permission to send a given intent.
+- `TypeOK`: all state remains in the finite declared domains.
+
+Three negative controls independently allow sending without reservation,
+reacquiring a send permit after uncertainty, or acknowledging spoofed evidence.
+Each must produce its named invariant counterexample and safety-violation exit
+code; tool or syntax failure does not count as detecting the injected defect.
+
+### Publication correspondence and limits
+
+The model's immediate reservation and atomic acknowledgement correspond to the
+publisher's SQLite transitions; concurrency, rollback, reopen and interrupted
+send tests must validate the concrete implementation. `eligible` abstracts
+explicit one-intent authority, fresh source evidence, operator policy and a
+trusted short-lived installation identity lease. `exactPositive` abstracts
+bounded canonical-target reads with exactly one numeric-bot-ID and exact-body
+match. The checker does not establish these predicates: implementation tests
+and the trusted host's credential-issuance boundary remain necessary. It does
+not verify GitHub, the network, credentials, permission provisioning, SQLite,
+Effect cancellation, schema migration, backup implementation or process leases.
+
+No state transition loads an older backup. A stale snapshot could omit a prior
+reservation or successful remote send, invalidating `AtMostOnePost` across
+histories. Restored ledgers therefore require a separate operational send block
+and external-history reconciliation; this finite model is not proof that such
+reconciliation is complete. No exactly-once delivery or safe retry is claimed.
+A source change after the final check also remains possible. The intentional
+trade-off is safety over liveness: even a reservation followed by a crash before
+any POST remains uncertain rather than being automatically resent.

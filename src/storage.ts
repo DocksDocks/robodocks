@@ -6,6 +6,7 @@ import { ContractError, requireCondition } from "./validation.ts";
 
 const APPLICATION_ID = 0x52444253;
 const SCHEMA_VERSION = 1;
+const PUBLICATION_SCHEMA_VERSION = 2;
 
 // Shared canonical v1 DDL: recovery compares against a trusted in-memory reference.
 export const INITIAL_SCHEMA_SQL = `
@@ -41,6 +42,35 @@ export const INITIAL_SCHEMA_SQL = `
       PRAGMA user_version = ${SCHEMA_VERSION};
       INSERT INTO schema_migrations (version, name) VALUES (1, 'initial-ledger');
     `;
+
+// Explicit opt-in migration only; ordinary writer initialization remains v1.
+export const PUBLICATION_SCHEMA_SQL = `
+  CREATE TABLE publication_attempts (
+    intent_id TEXT PRIMARY KEY REFERENCES outbox(id),
+    repository TEXT NOT NULL,
+    repository_id INTEGER NOT NULL CHECK (repository_id > 0),
+    pull_request_id INTEGER NOT NULL CHECK (pull_request_id > 0),
+    pull_request INTEGER NOT NULL CHECK (pull_request > 0),
+    head_sha TEXT NOT NULL,
+    app_id INTEGER NOT NULL CHECK (app_id > 0),
+    installation_id INTEGER NOT NULL CHECK (installation_id > 0),
+    bot_user_id INTEGER NOT NULL CHECK (bot_user_id > 0),
+    body TEXT NOT NULL,
+    body_digest TEXT NOT NULL,
+    renderer_version TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('sending', 'unknown', 'acknowledged')),
+    comment_id INTEGER CHECK (comment_id > 0),
+    CHECK ((status = 'acknowledged' AND comment_id IS NOT NULL) OR
+           (status IN ('sending', 'unknown') AND comment_id IS NULL))
+  ) STRICT;
+  CREATE TABLE publication_control (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    restored INTEGER NOT NULL CHECK (restored IN (0, 1))
+  ) STRICT;
+  INSERT INTO publication_control (id, restored) VALUES (1, 0);
+  INSERT INTO schema_migrations (version, name) VALUES (2, 'publication-attempts');
+  PRAGMA user_version = 2;
+`;
 
 export class StoreError extends Data.TaggedError("StoreError")<{
   readonly code: string;
@@ -104,7 +134,9 @@ function ownership(db: Database): number {
     "Database is not an initialized Robodocks ledger or an empty database",
   );
   ensure(
-    version === 0 || version === SCHEMA_VERSION,
+    version === 0 ||
+      version === SCHEMA_VERSION ||
+      version === PUBLICATION_SCHEMA_VERSION,
     "DATABASE_VERSION",
     "Database schema version is unsupported; no migration was attempted",
   );
@@ -113,7 +145,7 @@ function ownership(db: Database): number {
     "DATABASE_VERSION",
     "Unrecognized pre-migration database contents",
   );
-  if (version === SCHEMA_VERSION) {
+  if (version === SCHEMA_VERSION || version === PUBLICATION_SCHEMA_VERSION) {
     const requiredObjects = [
       "schema_migrations",
       "deliveries",
@@ -122,6 +154,8 @@ function ownership(db: Database): number {
       "deliveries_repository",
       "findings_repository",
     ];
+    if (version === PUBLICATION_SCHEMA_VERSION)
+      requiredObjects.push("publication_attempts", "publication_control");
     ensure(
       requiredObjects.every((name) =>
         tables.some((object) => object.name === name),
@@ -135,9 +169,12 @@ function ownership(db: Database): number {
       )
       .all();
     ensure(
-      migrations.length === 1 &&
+      migrations.length === version &&
         migrations[0]?.version === SCHEMA_VERSION &&
-        migrations[0]?.name === "initial-ledger",
+        migrations[0]?.name === "initial-ledger" &&
+        (version === 1 ||
+          (migrations[1]?.version === 2 &&
+            migrations[1]?.name === "publication-attempts")),
       "DATABASE_VERSION",
       "Database migration history is unsupported or inconsistent",
     );
@@ -194,12 +231,12 @@ function initialize(db: Database): StorageDiagnostics {
     "Required SQLite durability and integrity settings could not be enabled",
   );
   db.transaction(() => {
-    if (ownership(db) === SCHEMA_VERSION) return;
+    if (ownership(db) !== 0) return;
     db.run(INITIAL_SCHEMA_SQL);
   }).immediate();
   return {
     sqliteVersion,
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion: ownership(db),
     journalMode,
     synchronous,
     foreignKeys,
@@ -241,7 +278,7 @@ export function acquireReadOnlyStore(filename: string) {
         db.run("PRAGMA busy_timeout = 5000");
         db.transaction(() => {
           ensure(
-            ownership(db) === SCHEMA_VERSION,
+            ownership(db) !== 0,
             "DATABASE_VERSION",
             "Inspection requires an initialized ledger",
           );
@@ -274,5 +311,72 @@ export function acquireStore(filename: string) {
     Effect.flatMap((db) =>
       storeOperation(() => ({ db, diagnostics: initialize(db) })),
     ),
+  );
+}
+
+/** Explicit additive opt-in. Never called by inspection, preview or recovery. */
+export function migratePublicationLedger(filename: string) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      // Check existence and ownership read-only before the writable opener.
+      yield* Effect.scoped(acquireReadOnlyStore(filename));
+      const { db } = yield* acquireStore(filename);
+      return yield* storeOperation(() =>
+        db
+          .transaction(() => {
+            const version = ownership(db);
+            const reference = new Database(":memory:");
+            try {
+              reference.run(INITIAL_SCHEMA_SQL);
+              if (version === 2) reference.run(PUBLICATION_SCHEMA_SQL);
+              const sql =
+                "SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY name";
+              ensure(
+                JSON.stringify(db.query(sql).all()) ===
+                  JSON.stringify(reference.query(sql).all()),
+                "DATABASE_VERSION",
+                "Migration requires the exact supported ledger schema",
+              );
+            } finally {
+              reference.close(true);
+            }
+            if (version === 1) {
+              db.run(PUBLICATION_SCHEMA_SQL);
+              db.run(
+                "UPDATE publication_control SET restored = 1 WHERE id = 1",
+              );
+            }
+            return { schemaVersion: 2 as const, migrated: version === 1 };
+          })
+          .immediate(),
+      );
+    }),
+  );
+}
+
+/** New authoritative ledger only. Existing ledgers require quarantined migration. */
+export function initializePublicationLedger(filename: string) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      yield* storeOperation(() => {
+        validateDatabasePath(filename);
+        // Exclusive creation, not a check-then-open overwrite of an existing ledger.
+        closeSync(openSync(filename, "ax", 0o600));
+      });
+      const { db } = yield* acquireStore(filename);
+      return yield* storeOperation(() =>
+        db
+          .transaction(() => {
+            ensure(
+              ownership(db) === 1,
+              "DATABASE_VERSION",
+              "Expected a newly initialized ledger",
+            );
+            db.run(PUBLICATION_SCHEMA_SQL);
+            return { schemaVersion: 2 as const };
+          })
+          .immediate(),
+      );
+    }),
   );
 }
